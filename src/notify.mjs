@@ -9,6 +9,7 @@ import { existsSync } from 'node:fs';
 import { isMuted, readConfig } from './state.mjs';
 import { translate } from './translate.mjs';
 import { highlightWaiting, clearHighlight } from './highlight.mjs';
+import * as voicevox from './voicevox.mjs';
 
 const platform = process.platform; // 'darwin' | 'linux' | 'win32'
 
@@ -132,7 +133,14 @@ export const emit = ({ provider = 'default', event = 'done', label = '', message
 
   if (!muted) {
     playSound(soundName);
-    if (config.speak) speak(speakText, voice);
+    if (config.speak) {
+      let spoken = false;
+      if (config.tts === 'voicevox') {
+        const speaker = process.env.AI_NOTIFY_VOICEVOX_SPEAKER || config.voicevox?.speaker;
+        spoken = voicevox.speak(speakText, speaker, config.voicevox?.url);
+      }
+      if (!spoken) speak(speakText, voice); // OS `say` (also the VOICEVOX fallback)
+    }
   }
 
   if (!muted || config.bannerWhenMuted) {

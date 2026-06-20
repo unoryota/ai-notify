@@ -79,6 +79,11 @@ export const DEFAULT_CONFIG = {
   // 'Kyoko'). Empty = OS default voice. Switch it with `ai-notify voice`. A
   // per-provider `voice` below, if set, overrides this for that agent.
   voice: '',
+  // TTS backend: 'say' (OS voice) or 'voicevox' (local VOICEVOX engine — speak
+  // in character voices). Falls back to 'say' if the engine isn't running.
+  // Per window: $AI_NOTIFY_VOICEVOX_SPEAKER overrides the speaker id.
+  tts: 'say',
+  voicevox: { url: 'http://127.0.0.1:50021', speaker: 3 },
   // Spoken read-out templates for agent events. The window label is added
   // separately (speakLabel), so leave {label} out here to avoid doubling it.
   // Override per language (e.g. Japanese) in config.json. An agent that supplies

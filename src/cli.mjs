@@ -10,6 +10,7 @@ import { curatedVoices, resolveVoice, previewVoice } from './voices.mjs';
 import * as menubar from './menubar.mjs';
 import { translate } from './translate.mjs';
 import { diagnose as highlightDiagnose, clearHighlight } from './highlight.mjs';
+import * as voicevox from './voicevox.mjs';
 import { isMuted, setMuted, toggleMuted, readConfig, writeConfig, paths, DEFAULT_CONFIG } from './state.mjs';
 
 const VERSION = '0.1.1';
@@ -211,6 +212,48 @@ const cmds = {
     log('  Reset:    ai-notify voice default');
   },
 
+  // Speak in VOICEVOX character voices (local engine, free, offline).
+  voicevox() {
+    const sub = positionals[0] || 'status';
+    const config = readConfig();
+    const url = config.voicevox?.url || voicevox.DEFAULT_URL;
+
+    if (sub === 'speakers') {
+      const list = voicevox.listSpeakers(url);
+      if (!list.length) return log(`No speakers (is VOICEVOX running at ${url}?).`);
+      list.forEach((s) => log(`  ${String(s.id).padStart(3)}  ${s.name}`));
+      log(`\nUse one:  ai-notify voicevox on <id>`);
+      return;
+    }
+    if (sub === 'on') {
+      if (!voicevox.isAvailable(url)) {
+        console.error(`VOICEVOX engine not reachable at ${url}. Start the VOICEVOX app first.`);
+        process.exit(1);
+      }
+      const speaker = Number(positionals[1] || config.voicevox?.speaker || 3);
+      config.tts = 'voicevox';
+      config.voicevox = { ...(config.voicevox || {}), url, speaker };
+      writeConfig(config);
+      log(`✓ VOICEVOX on (speaker ${speaker}). Testing…`);
+      voicevox.speak('ボイスボックスで読み上げます。', speaker, url);
+      return;
+    }
+    if (sub === 'off') {
+      config.tts = 'say';
+      writeConfig(config);
+      return log('VOICEVOX off — using the OS voice.');
+    }
+    if (sub === 'test') {
+      const speaker = Number(positionals[1] || config.voicevox?.speaker || 3);
+      const ok = voicevox.speak('これはテスト読み上げです。完了しました。', speaker, url);
+      return log(ok ? `spoke with speaker ${speaker}` : `⚠ failed (is VOICEVOX running at ${url}?)`);
+    }
+    // status
+    log(`VOICEVOX: ${config.tts === 'voicevox' ? `on (speaker ${config.voicevox?.speaker})` : 'off'}`);
+    log(`  engine ${url}: ${voicevox.isAvailable(url) ? '✓ reachable' : '✗ not running'}`);
+    if (config.tts !== 'voicevox') log('\nEnable:  ai-notify voicevox on    (list voices: ai-notify voicevox speakers)');
+  },
+
   // Native menu bar bell (macOS). Self-contained — no Hammerspoon/SwiftBar.
   menubar() {
     const sub = positionals[0] || 'status';
@@ -341,6 +384,7 @@ Usage:
   ai-notify uninstall [--only ...]                   remove wiring
   ai-notify toggle | on | off | status               control the mute switch
   ai-notify voice [number|name|preview|default]      pick the spoken voice
+  ai-notify voicevox [on <id>|off|speakers|test]     speak in VOICEVOX character voices
   ai-notify menubar [install|uninstall|status]       native menu bar bell (macOS)
   ai-notify translate [on <lang>|off|test]           speak agent text in your language
   ai-notify doctor                                    check deps & wiring
