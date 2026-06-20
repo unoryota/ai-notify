@@ -39,3 +39,19 @@ export const cliInvocation = () => ({
 export const isEphemeralInstall = (cliPath) => /[/\\]_npx[/\\]/.test(cliPath);
 
 export const MARKER = 'ai-notify'; // substring used to detect our own wiring
+
+// The controlling terminal of this process (e.g. "/dev/ttys010"), which is
+// stable per terminal pane — used to scope per-pane settings. null if none.
+export const controllingTty = () => {
+  try {
+    const t = execFileSync('ps', ['-o', 'tty=', '-p', String(process.pid)], {
+      stdio: ['ignore', 'pipe', 'ignore'],
+    })
+      .toString()
+      .trim();
+    if (!t || t === '??' || t === '?') return null;
+    return t.startsWith('/dev/') ? t : `/dev/${t}`;
+  } catch {
+    return null;
+  }
+};

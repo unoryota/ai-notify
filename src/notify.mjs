@@ -8,7 +8,8 @@ import { spawn, execFileSync } from 'node:child_process';
 import { existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { isMuted, readConfig, readVolume } from './state.mjs';
+import { isMuted, readConfig, readVolume, recordPane, readPaneVoice } from './state.mjs';
+import { controllingTty } from './util.mjs';
 import { translate } from './translate.mjs';
 import { highlightWaiting, clearHighlight } from './highlight.mjs';
 import * as voicevox from './voicevox.mjs';
@@ -159,11 +160,17 @@ export const emit = ({ provider = 'default', event = 'done', label = '', message
   // dir) is just slow filler. Prefix it only if explicitly enabled.
   const speakText = config.speakLabel === true && label ? `${label}、${spokenBody}` : spokenBody;
 
-  // Voice precedence (most specific first):
-  //   $AI_NOTIFY_VOICE  — set per terminal window/pane to give each its own voice
-  //   provider voice    — per agent (Claude vs Codex)
-  //   global voice      — the single `ai-notify voice` switch
-  const voice = process.env.AI_NOTIFY_VOICE || p.voice || config.voice;
+  // Per-pane voice: remember this pane (so the menu bar can list it) and apply
+  // any voice assigned to it. Precedence (most specific first):
+  //   $AI_NOTIFY_* env  — set in the pane's shell
+  //   this pane's pick  — assigned from the menu bar (keyed by tty)
+  //   provider / global — config defaults
+  const tty = controllingTty();
+  recordPane(tty, label);
+  const pane = readPaneVoice(tty) || {};
+  const tts = pane.tts || config.tts;
+  const voice = process.env.AI_NOTIFY_VOICE || pane.voice || p.voice || config.voice;
+  const speaker = process.env.AI_NOTIFY_VOICEVOX_SPEAKER || pane.speaker || config.voicevox?.speaker;
 
   // Volume (0–2): per-window env > the menu bar slider / `ai-notify volume` > config.
   const envVol = parseFloat(process.env.AI_NOTIFY_VOLUME);
@@ -180,8 +187,7 @@ export const emit = ({ provider = 'default', event = 'done', label = '', message
     playSound(soundName, vol);
     if (config.speak && vol > 0) {
       let spoken = false;
-      if (config.tts === 'voicevox') {
-        const speaker = process.env.AI_NOTIFY_VOICEVOX_SPEAKER || config.voicevox?.speaker;
+      if (tts === 'voicevox') {
         spoken = voicevox.speak(speakText, speaker, config.voicevox?.url, vol);
       }
       if (!spoken) speak(speakText, voice, vol); // OS `say` (also the VOICEVOX fallback)

@@ -1,13 +1,13 @@
-// ai-notify menu bar agent — a native NSStatusItem that mirrors the shared mute
-// flag and adds a volume slider and a voice picker, with no third-party app.
+// ai-notify menu bar agent — native NSStatusItem, no third-party app.
 //
-// Shared state (same files the CLI and every agent read):
-//   ${XDG_STATE_HOME:-~/.local/state}/ai-notify/muted    present = muted
-//   ${XDG_STATE_HOME:-~/.local/state}/ai-notify/volume   0.0–2.0 (1.0 = normal)
-//   ${XDG_STATE_HOME:-~/.local/state}/ai-notify/cli       launcher -> `ai-notify`
+// Shared state (same files the CLI and every agent read), under
+//   ${XDG_STATE_HOME:-~/.local/state}/ai-notify/ :
+//     muted   present = muted
+//     volume  0.0–2.0 (1.0 = normal)
+//     cli     launcher -> `ai-notify`
 //
-// Left click  : toggle mute (one tap)
-// Right click : menu — mute, volume slider, Voice ▸ (VOICEVOX + system), quit
+// Left click  : menu — volume slider, voice list (flat), per-pane voices, quit
+// Right click : toggle mute (one tap)
 //
 // Builds with the system `swiftc` — no Xcode project, no dependencies.
 
@@ -39,7 +39,6 @@ enum State {
         try? String(format: "%.2f", v).write(toFile: file("volume"), atomically: true, encoding: .utf8)
     }
 
-    // Run the CLI launcher, capturing stdout (nil on failure).
     @discardableResult
     static func cli(_ args: [String], capture: Bool = false) -> String? {
         let launcher = file("cli")
@@ -77,48 +76,70 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func render() { statusItem.button?.title = State.isMuted ? "🔕" : "🔔" }
 
     @objc private func handleClick(_ sender: Any?) {
-        guard let e = NSApp.currentEvent else { toggle(); return }
-        if e.type == .rightMouseUp { showMenu() } else { toggle() }
+        guard let e = NSApp.currentEvent else { showMenu(); return }
+        if e.type == .rightMouseUp { toggle() } else { showMenu() }
     }
 
     private func toggle() { State.setMuted(!State.isMuted); render() }
-    @objc private func toggleFromMenu() { toggle() }
     @objc private func quit() { NSApp.terminate(nil) }
-
     @objc private func volumeChanged(_ s: NSSlider) { State.setVolume(s.doubleValue) }
 
-    @objc private func pickVoice(_ item: NSMenuItem) {
+    // representedObject is the full CLI arg array to run.
+    @objc private func runItem(_ item: NSMenuItem) {
         if let cmd = item.representedObject as? [String] { State.cli(cmd) }
     }
 
+    private func disabledHeader(_ title: String) -> NSMenuItem {
+        let it = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        it.isEnabled = false
+        return it
+    }
+
     private func showMenu() {
-        let muted = State.isMuted
         let menu = NSMenu()
 
-        let toggleItem = NSMenuItem(title: muted ? "通知をオンにする" : "ミュート", action: #selector(toggleFromMenu), keyEquivalent: "")
-        toggleItem.target = self
-        menu.addItem(toggleItem)
-
-        menu.addItem(.separator())
-
-        // Volume slider in a custom view.
-        let row = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 26))
-        let icon = NSTextField(labelWithString: "🔊")
-        icon.frame = NSRect(x: 12, y: 4, width: 20, height: 18)
-        let slider = NSSlider(value: State.volume, minValue: 0, maxValue: 2,
-                              target: self, action: #selector(volumeChanged(_:)))
-        slider.frame = NSRect(x: 36, y: 3, width: 150, height: 20)
-        slider.isContinuous = true
+        // Volume slider.
+        let row = NSView(frame: NSRect(x: 0, y: 0, width: 220, height: 26))
+        let icon = NSTextField(labelWithString: "🔊"); icon.frame = NSRect(x: 12, y: 4, width: 20, height: 18)
+        let slider = NSSlider(value: State.volume, minValue: 0, maxValue: 2, target: self, action: #selector(volumeChanged(_:)))
+        slider.frame = NSRect(x: 36, y: 3, width: 170, height: 20); slider.isContinuous = true
         row.addSubview(icon); row.addSubview(slider)
         let volItem = NSMenuItem(); volItem.view = row
         menu.addItem(volItem)
-
         menu.addItem(.separator())
 
-        // Voice submenu, populated from `cli menu-json`.
-        let voiceItem = NSMenuItem(title: "声 / Voice", action: nil, keyEquivalent: "")
-        voiceItem.submenu = buildVoiceMenu()
-        menu.addItem(voiceItem)
+        // Parse menu-json once.
+        let json = (State.cli(["menu-json"], capture: true)?.data(using: .utf8))
+            .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        let voices = (json?["voices"] as? [[String: Any]]) ?? []
+        let panes = (json?["panes"] as? [[String: Any]]) ?? []
+
+        if voices.isEmpty {
+            menu.addItem(disabledHeader("(声の一覧を取得できません)"))
+        } else {
+            // Global voice list — flat, at the top level.
+            menu.addItem(disabledHeader("ボイス（全体）"))
+            addVoiceItems(voices, to: menu, paneTty: nil, currentPaneLabel: nil)
+        }
+
+        // Per-pane voices: one submenu per recently-active pane.
+        if !panes.isEmpty {
+            menu.addItem(.separator())
+            menu.addItem(disabledHeader("ペイン別"))
+            for p in panes {
+                guard let tty = p["tty"] as? String else { continue }
+                let label = p["label"] as? String ?? tty
+                let cur = p["current"] as? String
+                let item = NSMenuItem(title: cur != nil ? "\(label) — \(cur!)" : label, action: nil, keyEquivalent: "")
+                let sub = NSMenu()
+                let def = NSMenuItem(title: "デフォルト（全体に従う）", action: #selector(runItem(_:)), keyEquivalent: "")
+                def.target = self; def.representedObject = ["voice-pane", tty, "clear"]; def.state = (cur == nil) ? .on : .off
+                sub.addItem(def); sub.addItem(.separator())
+                addVoiceItems(voices, to: sub, paneTty: tty, currentPaneLabel: cur)
+                item.submenu = sub
+                menu.addItem(item)
+            }
+        }
 
         menu.addItem(.separator())
         let quitItem = NSMenuItem(title: "ai-notify を終了", action: #selector(quit), keyEquivalent: "q")
@@ -130,35 +151,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.menu = nil
     }
 
-    private func buildVoiceMenu() -> NSMenu {
-        let sub = NSMenu()
-        guard let out = State.cli(["menu-json"], capture: true),
-              let data = out.data(using: .utf8),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let voices = json["voices"] as? [[String: Any]], !voices.isEmpty
-        else {
-            let none = NSMenuItem(title: "(VOICEVOX/エンジン未検出)", action: nil, keyEquivalent: "")
-            none.isEnabled = false
-            sub.addItem(none)
-            return sub
-        }
+    // Add the voice list to `menu`. paneTty == nil => sets the global voice;
+    // otherwise assigns the voice to that pane.
+    private func addVoiceItems(_ voices: [[String: Any]], to menu: NSMenu, paneTty: String?, currentPaneLabel: String?) {
         var lastSection = ""
         for v in voices {
             let section = v["section"] as? String ?? ""
-            if section != lastSection {
-                if !lastSection.isEmpty { sub.addItem(.separator()) }
-                let header = NSMenuItem(title: section, action: nil, keyEquivalent: "")
-                header.isEnabled = false
-                sub.addItem(header)
-                lastSection = section
-            }
-            let it = NSMenuItem(title: v["label"] as? String ?? "?", action: #selector(pickVoice(_:)), keyEquivalent: "")
+            let label = v["label"] as? String ?? "?"
+            let kind = v["kind"] as? String ?? "say"
+            let ref = v["ref"] as? String ?? ""
+            if section != lastSection { menu.addItem(disabledHeader("— \(section) —")); lastSection = section }
+            let it = NSMenuItem(title: label, action: #selector(runItem(_:)), keyEquivalent: "")
             it.target = self
-            it.state = (v["current"] as? Bool ?? false) ? .on : .off
-            it.representedObject = v["cmd"] as? [String]
-            sub.addItem(it)
+            if let tty = paneTty {
+                it.representedObject = ["voice-pane", tty, kind, ref]
+                it.state = (currentPaneLabel == label) ? .on : .off
+            } else {
+                it.representedObject = kind == "voicevox" ? ["voicevox", "on", ref] : ["voice", ref]
+                it.state = (v["currentGlobal"] as? Bool ?? false) ? .on : .off
+            }
+            menu.addItem(it)
         }
-        return sub
     }
 }
 

@@ -67,6 +67,50 @@ export const setVolume = (v) => {
   return n;
 };
 
+// --- Per-pane state --------------------------------------------------------
+// Recently-active terminal panes (so the menu bar can offer per-pane voices),
+// and a per-tty voice override. Both are small JSON files in the state dir.
+
+const readJson = (p, fallback) => {
+  try {
+    return JSON.parse(readFileSync(p, 'utf8'));
+  } catch {
+    return fallback;
+  }
+};
+const writeJson = (p, obj) => {
+  ensureDir(stateDir());
+  writeFileSync(p, JSON.stringify(obj));
+};
+
+const panesPath = () => join(stateDir(), 'panes.json');
+const paneVoicesPath = () => join(stateDir(), 'pane-voices.json');
+
+// Record this pane as active (keyed by tty). Keeps the 16 most-recent.
+export const recordPane = (tty, label) => {
+  if (!tty) return;
+  const all = readJson(panesPath(), {});
+  all[tty] = { label: label || '', ts: Date.now() };
+  const trimmed = Object.entries(all)
+    .sort((a, b) => b[1].ts - a[1].ts)
+    .slice(0, 16);
+  writeJson(panesPath(), Object.fromEntries(trimmed));
+};
+
+export const readPanes = () =>
+  Object.entries(readJson(panesPath(), {}))
+    .map(([tty, v]) => ({ tty, label: v.label || '', ts: v.ts || 0 }))
+    .sort((a, b) => b.ts - a.ts);
+
+export const readPaneVoice = (tty) => (tty ? readJson(paneVoicesPath(), {})[tty] || null : null);
+
+export const setPaneVoice = (tty, voice) => {
+  const all = readJson(paneVoicesPath(), {});
+  if (voice == null) delete all[tty];
+  else all[tty] = voice; // { tts:'voicevox', speaker } | { tts:'say', voice }
+  writeJson(paneVoicesPath(), all);
+};
+
 // --- Config ----------------------------------------------------------------
 
 // Sounds default to OS built-ins so we ship no audio assets (clean repo, no

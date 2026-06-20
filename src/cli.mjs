@@ -21,6 +21,9 @@ import {
   DEFAULT_CONFIG,
   readVolume,
   setVolume,
+  readPanes,
+  readPaneVoice,
+  setPaneVoice,
 } from './state.mjs';
 
 const VERSION = '0.1.2';
@@ -278,35 +281,68 @@ const cmds = {
     log(`🔊 volume → ${n}`);
   },
 
-  // Machine-readable state for the menu bar agent (current mute/volume + the
-  // selectable voices). Not for humans.
+  // Assign a voice to a specific pane (by tty), from the menu bar.
+  //   voice-pane <tty> voicevox <id> | say <name> | clear
+  'voice-pane'() {
+    const [tty, kind, ref] = positionals;
+    if (!tty) {
+      console.error('usage: voice-pane <tty> voicevox <id> | say <name> | clear');
+      process.exit(1);
+    }
+    if (!kind || kind === 'clear') {
+      setPaneVoice(tty, null);
+      return log(`pane ${tty}: voice reset to default`);
+    }
+    if (kind === 'voicevox') setPaneVoice(tty, { tts: 'voicevox', speaker: Number(ref) });
+    else if (kind === 'say') setPaneVoice(tty, { tts: 'say', voice: ref });
+    else {
+      console.error(`unknown kind: ${kind}`);
+      process.exit(1);
+    }
+    log(`pane ${tty}: ${kind} ${ref}`);
+  },
+
+  // Machine-readable state for the menu bar agent: mute, volume, the selectable
+  // voices, and the recently-active panes (for per-pane assignment). Not human.
   'menu-json'() {
     const config = readConfig();
     const url = config.voicevox?.url || voicevox.DEFAULT_URL;
-    const out = {
-      muted: isMuted(),
-      volume: readVolume() != null ? readVolume() : typeof config.volume === 'number' ? config.volume : 1,
-      voices: [],
-    };
-    if (voicevox.isAvailable(url)) {
-      for (const s of voicevox.listCharacters(url)) {
-        out.voices.push({
-          section: 'VOICEVOX',
-          label: s.name,
-          current: config.tts === 'voicevox' && Number(config.voicevox?.speaker) === s.id,
-          cmd: ['voicevox', 'on', String(s.id)],
-        });
-      }
-    }
-    for (const n of curatedVoices(10)) {
-      out.voices.push({
+    const chars = voicevox.isAvailable(url) ? voicevox.listCharacters(url) : [];
+    const idName = new Map(chars.map((c) => [c.id, c.name]));
+    const voices = [];
+    for (const c of chars)
+      voices.push({
+        section: 'VOICEVOX',
+        label: c.name,
+        kind: 'voicevox',
+        ref: String(c.id),
+        currentGlobal: config.tts === 'voicevox' && Number(config.voicevox?.speaker) === c.id,
+      });
+    for (const n of curatedVoices(10))
+      voices.push({
         section: 'System',
         label: n,
-        current: config.tts !== 'voicevox' && config.voice === n,
-        cmd: ['voice', n],
+        kind: 'say',
+        ref: n,
+        currentGlobal: config.tts !== 'voicevox' && config.voice === n,
       });
-    }
-    log(JSON.stringify(out));
+    const labelFor = (pv) => {
+      if (!pv) return null;
+      return pv.tts === 'voicevox' ? idName.get(Number(pv.speaker)) || `VOICEVOX ${pv.speaker}` : pv.voice || 'system';
+    };
+    const panes = readPanes().map((p) => ({
+      tty: p.tty,
+      label: p.label || p.tty.replace('/dev/', ''),
+      current: labelFor(readPaneVoice(p.tty)),
+    }));
+    log(
+      JSON.stringify({
+        muted: isMuted(),
+        volume: readVolume() != null ? readVolume() : typeof config.volume === 'number' ? config.volume : 1,
+        voices,
+        panes,
+      })
+    );
   },
 
   // Native menu bar bell (macOS). Self-contained — no Hammerspoon/SwiftBar.
@@ -320,7 +356,7 @@ const cmds = {
       const r = menubar.install();
       log(`  ✓ app:   ${r.app}`);
       log(`  ✓ agent: ${r.plist} (starts at login)`);
-      log('A 🔔 should now be in your menu bar. Left-click toggles, right-click for a menu.');
+      log('A 🔔 is now in your menu bar. Left-click for the menu (volume, voices), right-click to mute.');
       return;
     }
     if (sub === 'uninstall') {
