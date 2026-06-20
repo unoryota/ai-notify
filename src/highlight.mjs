@@ -70,7 +70,18 @@ const tmuxReset = () => {
 };
 
 // --- Apple Terminal (set the tab bg by tty; store original to restore) ---
-const isAppleTerminal = () => isMac && process.env.TERM_PROGRAM === 'Apple_Terminal';
+// Some setups don't export TERM_PROGRAM, so detect Apple Terminal robustly:
+// explicit signals first, then — when the terminal is unknown — attempt anyway.
+// The AppleScript matches by tty, so it's a harmless no-op if this isn't really
+// a Terminal.app tab. Known non-Terminal programs (iTerm.app, vscode, …) opt out
+// to avoid needless automation prompts.
+const isAppleTerminal = () => {
+  if (!isMac) return false;
+  const tp = process.env.TERM_PROGRAM;
+  if (tp === 'Apple_Terminal') return true;
+  if (process.env.__CFBundleIdentifier === 'com.apple.Terminal') return true;
+  return !tp; // unknown terminal -> try; the tty match guards it
+};
 const savePath = (tty) => join(stateDir(), `hl-${tty.replace(/[^\w]+/g, '_')}`);
 
 const appleSet = (rgb16) => {
@@ -168,6 +179,8 @@ export const diagnose = (color = 'yellow') => {
   const info = {
     platform: process.platform,
     TERM_PROGRAM: process.env.TERM_PROGRAM || null,
+    __CFBundleIdentifier: process.env.__CFBundleIdentifier || null,
+    isAppleTerminal: isAppleTerminal(),
     TMUX: process.env.TMUX ? process.env.TMUX_PANE || true : false,
     tty: ttyName(),
   };
@@ -206,7 +219,7 @@ end tell`;
       }
     }
   } else {
-    info.appleTerminal = 'TERM_PROGRAM is not Apple_Terminal';
+    info.appleTerminal = 'skipped (detected a non-Terminal program)';
   }
   return info;
 };
