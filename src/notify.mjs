@@ -94,6 +94,18 @@ const banner = (title, subtitle, message, { activate, urgent } = {}) => {
   // win32: skipped (no dependency-free toast); sound/voice still fire.
 };
 
+// A short, speakable gist of a summary: the first sentence, capped at `max`
+// characters on a clause boundary — enough to tell which task, not a monologue.
+const shortenForSpeech = (text, max = 40) => {
+  let s = String(text).replace(/\s+/g, ' ').trim();
+  s = (s.split(/[。.!?！？\n]/)[0] || s).trim(); // first sentence
+  if (s.length <= max) return s.replace(/[、,\s]+$/, '');
+  const cut = s.slice(0, max);
+  const ten = cut.lastIndexOf('、'); // prefer a clause boundary
+  const sep = ten > max * 0.4 ? ten : cut.lastIndexOf(' ');
+  return (sep > 0 ? cut.slice(0, sep) : cut).replace(/[、,\s]+$/, '').trim();
+};
+
 // Public entry. Called by the hook handler with already-parsed fields.
 export const emit = ({ provider = 'default', event = 'done', label = '', message = '' }) => {
   const config = readConfig();
@@ -119,11 +131,13 @@ export const emit = ({ provider = 'default', event = 'done', label = '', message
   } else {
     fullBody = fromTemplate || fallback;
   }
-  // Spoken read-out — keep it SHORT: just the window label + the event, so you
-  // know *which* terminal needs you. Reading a long summary aloud gets cut off
-  // (and slows synthesis). Opt into reading the full message with
-  // speakAgentMessage:true.
-  const spokenBody = config.speakAgentMessage && message ? fullBody : fromTemplate || fallback;
+  // Spoken read-out — short enough not to get cut off, but enough to identify
+  // WHICH task: the window label + a short gist of what happened (the first
+  // clause of the summary). speakAgentMessage:true reads the whole thing.
+  let spokenBody;
+  if (!message) spokenBody = fromTemplate || fallback;
+  else if (config.speakAgentMessage) spokenBody = fullBody;
+  else spokenBody = shortenForSpeech(fullBody, config.speakMaxChars || 40);
   const speakText = config.speakLabel !== false && label ? `${label}、${spokenBody}` : spokenBody;
 
   // Voice precedence (most specific first):

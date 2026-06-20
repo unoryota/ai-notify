@@ -65,10 +65,11 @@ export const DEFAULT_CONFIG = {
   // Make the desktop notification click bring the terminal/IDE forward.
   notifyActivate: true,
   // Speak the agent's full message aloud (Codex's reply, a Claude prompt, the
-  // done-summary)? Default false = the read-out stays short ("<label> finished")
-  // so it never gets cut off; the full text still shows in the desktop banner.
-  // Set true to read the whole thing aloud.
+  // done-summary)? Default false = read only a short gist (first clause, capped
+  // at speakMaxChars) — enough to tell which task, never cut off. The full text
+  // still shows in the desktop banner. Set true to read the whole thing.
   speakAgentMessage: false,
+  speakMaxChars: 40,
   // Optional: translate the agent's message into this language before speaking
   // it (e.g. 'ja'). Empty = off. Key-less, no cost; makes a network request.
   // Toggle with `ai-notify translate on ja` / `off`.
