@@ -12,7 +12,7 @@ import { translate } from './translate.mjs';
 import { diagnose as highlightDiagnose, clearHighlight } from './highlight.mjs';
 import { isMuted, setMuted, toggleMuted, readConfig, writeConfig, paths, DEFAULT_CONFIG } from './state.mjs';
 
-const VERSION = '0.1.0';
+const VERSION = '0.1.1';
 
 const args = process.argv.slice(2);
 const cmd = args[0];
