@@ -105,13 +105,14 @@ const appleReset = () => {
   const tty = ttyName();
   if (!tty) return;
   const p = savePath(tty);
+  // Only restore if WE highlighted this tab (a saved original exists). Without
+  // this guard a normal 'done' with no prior 'waiting' would blacken the tab.
+  if (!existsSync(p)) return;
   let rgb16 = '0, 0, 0';
-  if (existsSync(p)) {
-    try {
-      rgb16 = readFileSync(p, 'utf8').trim();
-    } catch {
-      /* ignore */
-    }
+  try {
+    rgb16 = readFileSync(p, 'utf8').trim() || rgb16;
+  } catch {
+    /* ignore */
   }
   const script = `tell application "Terminal"
   repeat with w in windows
@@ -142,14 +143,36 @@ const rgb16From = (c) => {
   return '65535, 54000, 0'; // yellow
 };
 
+// A per-tty marker so `clear` only touches the terminal when WE highlighted it
+// (a 'done' with no prior 'waiting' must leave the window untouched).
+const markPath = (tty) => join(stateDir(), `hl-on-${tty.replace(/[^\w]+/g, '_')}`);
+
 export const highlightWaiting = (label, color = 'yellow') => {
   writeTty(oscSet(colorHex(color), `⏳ ${label || 'input'}`));
   if (isAppleTerminal()) appleSet(rgb16From(color));
   tmuxSet(color);
+  const tty = ttyName();
+  if (tty) {
+    try {
+      mkdirSync(stateDir(), { recursive: true });
+      writeFileSync(markPath(tty), '');
+    } catch {
+      /* ignore */
+    }
+  }
 };
 
 export const clearHighlight = () => {
+  const tty = ttyName();
+  if (tty && !existsSync(markPath(tty))) return; // we never highlighted this one
   writeTty(oscReset);
   if (isAppleTerminal()) appleReset();
   tmuxReset();
+  if (tty) {
+    try {
+      if (existsSync(markPath(tty))) rmSync(markPath(tty));
+    } catch {
+      /* ignore */
+    }
+  }
 };
