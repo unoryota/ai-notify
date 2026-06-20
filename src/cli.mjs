@@ -8,6 +8,7 @@ import { emit } from './notify.mjs';
 import { deriveLabel, cliInvocation, isEphemeralInstall } from './util.mjs';
 import { curatedVoices, resolveVoice, previewVoice } from './voices.mjs';
 import * as menubar from './menubar.mjs';
+import { translate } from './translate.mjs';
 import { isMuted, setMuted, toggleMuted, readConfig, writeConfig, paths, DEFAULT_CONFIG } from './state.mjs';
 
 const VERSION = '0.1.0';
@@ -209,6 +210,40 @@ const cmds = {
     if (!menubar.isInstalled()) log('\nEnable it:  ai-notify menubar install');
   },
 
+  // Translate the agent's spoken message into your language before speaking it.
+  // Key-less and free (one HTTP request, no dependency); falls back to your
+  // templates if offline.
+  translate() {
+    const sub = positionals[0] || 'status';
+    const config = readConfig();
+
+    if (sub === 'on') {
+      const lang = positionals[1] || 'ja';
+      config.translateTo = lang;
+      config.speakAgentMessage = true; // we must keep the message to translate it
+      writeConfig(config);
+      log(`✓ translation on → ${lang}. Testing…`);
+      const out = translate('The task is done. I updated three files.', lang, 8000);
+      log(out ? `  EN→ ${out}` : '  ⚠ no result (offline?). Falls back to your templates.');
+      return;
+    }
+    if (sub === 'off' || sub === 'none') {
+      config.translateTo = '';
+      writeConfig(config);
+      return log('Translation off.');
+    }
+    if (sub === 'test') {
+      const lang = config.translateTo || 'ja';
+      const text = positionals.slice(1).join(' ') || 'Claude needs your permission to run a command.';
+      const out = translate(text, lang, 8000);
+      log(out ? `EN  ${text}\n${lang.toUpperCase()}  ${out}` : '⚠ no result (offline?)');
+      return;
+    }
+    // status
+    log(`translation: ${config.translateTo ? `on → ${config.translateTo}` : 'off'}`);
+    if (!config.translateTo) log('Enable:  ai-notify translate on ja');
+  },
+
   hook() {
     const source = opt('source', 'default');
     let event = opt('event', 'done');
@@ -251,6 +286,7 @@ Usage:
   ai-notify toggle | on | off | status               control the mute switch
   ai-notify voice [number|name|preview|default]      pick the spoken voice
   ai-notify menubar [install|uninstall|status]       native menu bar bell (macOS)
+  ai-notify translate [on <lang>|off|test]           speak agent text in your language
   ai-notify doctor                                    check deps & wiring
   ai-notify config [init]                             print (or write) config
 

@@ -7,6 +7,7 @@
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { isMuted, readConfig } from './state.mjs';
+import { translate } from './translate.mjs';
 
 const platform = process.platform; // 'darwin' | 'linux' | 'win32'
 
@@ -94,12 +95,25 @@ export const emit = ({ provider = 'default', event = 'done', label = '', message
   const fromTemplate = template.replace(/\{label\}/g, label).replace(/\s+/g, ' ').trim();
   const fallback = event === 'waiting' ? 'is waiting for input' : 'finished';
   // The agent's own text (Codex's reply, a Claude prompt) is in the agent's
-  // language — often English — not necessarily the user's. With
-  // `speakAgentMessage: false` we never speak that raw text; the read-out stays
-  // in the user's own configured phrases (doneMessage / waitingMessage). The
-  // desktop banner still shows the full message visually.
-  const speakText =
-    config.speakAgentMessage === false ? fromTemplate || fallback : message || fromTemplate || fallback;
+  // language — often English — not necessarily the user's. Three modes:
+  //   speakAgentMessage:false  -> never speak it; use the localized template.
+  //   translateTo set          -> translate it into your language, speak that
+  //                               (falling back to the template on failure).
+  //   default                  -> speak the raw message as-is.
+  // The desktop banner always shows the full original message visually.
+  let speakText;
+  if (config.speakAgentMessage === false) {
+    speakText = fromTemplate || fallback;
+  } else if (message) {
+    if (config.translateTo) {
+      const translated = translate(message, config.translateTo);
+      speakText = translated || fromTemplate || fallback;
+    } else {
+      speakText = message;
+    }
+  } else {
+    speakText = fromTemplate || fallback;
+  }
 
   // Voice precedence (most specific first):
   //   $AI_NOTIFY_VOICE  — set per terminal window/pane to give each its own voice

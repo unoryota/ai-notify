@@ -59,6 +59,10 @@ export const DEFAULT_CONFIG = {
   // That text is in the agent's language — set this false to keep every spoken
   // read-out in your own language via doneMessage / waitingMessage instead.
   speakAgentMessage: true,
+  // Optional: translate the agent's message into this language before speaking
+  // it (e.g. 'ja'). Empty = off. Key-less, no cost; makes a network request.
+  // Toggle with `ai-notify translate on ja` / `off`.
+  translateTo: '',
   // Spoken confirmation when you un-mute. Override per language/voice — e.g. a
   // Japanese TTS voice reads the English word more naturally in katakana.
   onMessage: 'notifications on',
