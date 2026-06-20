@@ -92,7 +92,14 @@ export const emit = ({ provider = 'default', event = 'done', label = '', message
   const soundName = (p.sound && (p.sound[event] || p.sound.done)) || null;
   const template = (event === 'waiting' ? config.waitingMessage : config.doneMessage) || '';
   const fromTemplate = template.replace(/\{label\}/g, label).replace(/\s+/g, ' ').trim();
-  const speakText = message || fromTemplate || (event === 'waiting' ? 'is waiting for input' : 'finished');
+  const fallback = event === 'waiting' ? 'is waiting for input' : 'finished';
+  // The agent's own text (Codex's reply, a Claude prompt) is in the agent's
+  // language — often English — not necessarily the user's. With
+  // `speakAgentMessage: false` we never speak that raw text; the read-out stays
+  // in the user's own configured phrases (doneMessage / waitingMessage). The
+  // desktop banner still shows the full message visually.
+  const speakText =
+    config.speakAgentMessage === false ? fromTemplate || fallback : message || fromTemplate || fallback;
 
   // Voice precedence (most specific first):
   //   $AI_NOTIFY_VOICE  — set per terminal window/pane to give each its own voice

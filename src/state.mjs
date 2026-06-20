@@ -55,6 +55,10 @@ export const DEFAULT_CONFIG = {
   bannerWhenMuted: true,
   // Spoken read-out of which terminal finished (helps tell tabs apart).
   speak: true,
+  // Whether to speak the agent's own text (Codex's reply, a Claude prompt).
+  // That text is in the agent's language — set this false to keep every spoken
+  // read-out in your own language via doneMessage / waitingMessage instead.
+  speakAgentMessage: true,
   // Spoken confirmation when you un-mute. Override per language/voice — e.g. a
   // Japanese TTS voice reads the English word more naturally in katakana.
   onMessage: 'notifications on',
