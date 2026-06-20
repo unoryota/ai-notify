@@ -145,7 +145,7 @@ const cmds = {
 };
 
 function emitConfirm() {
-  emit({ provider: 'default', event: 'done', label: 'ai-notify', message: 'notifications on' });
+  emit({ provider: 'default', event: 'done', label: 'ai-notify', message: readConfig().onMessage });
 }
 
 function printHelp() {

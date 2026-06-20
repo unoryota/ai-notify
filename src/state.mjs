@@ -55,6 +55,9 @@ export const DEFAULT_CONFIG = {
   bannerWhenMuted: true,
   // Spoken read-out of which terminal finished (helps tell tabs apart).
   speak: true,
+  // Spoken confirmation when you un-mute. Override per language/voice — e.g. a
+  // Japanese TTS voice reads the English word more naturally in katakana.
+  onMessage: 'notifications on',
   providers: {
     claude: { sound: { waiting: 'Glass', done: 'Hero' }, voice: '' },
     codex: { sound: { done: 'Submarine' }, voice: '' },
