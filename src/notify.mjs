@@ -111,19 +111,20 @@ export const emit = ({ provider = 'default', event = 'done', label = '', message
   //                               (falling back to the template on failure).
   //   default                  -> speak the raw message as-is.
   // The desktop banner always shows the full original message visually.
-  // coreBody = WHAT happened, in the user's language, without the label.
-  let coreBody;
-  if (config.speakAgentMessage === false) {
-    coreBody = fromTemplate || fallback;
-  } else if (message) {
-    const translated = config.translateTo ? translate(message, config.translateTo) : message;
-    coreBody = translated || fromTemplate || fallback;
+  // Full text for the desktop banner — the translated summary / message. Length
+  // is fine here: a banner never gets cut off and you read it at a glance.
+  let fullBody;
+  if (message) {
+    fullBody = (config.translateTo ? translate(message, config.translateTo) : message) || fromTemplate || fallback;
   } else {
-    coreBody = fromTemplate || fallback;
+    fullBody = fromTemplate || fallback;
   }
-  // Prefix the window label for the spoken read-out so you can tell which of
-  // many terminals is asking (set a short per-window name with $AI_NOTIFY_LABEL).
-  const speakText = config.speakLabel !== false && label ? `${label}、${coreBody}` : coreBody;
+  // Spoken read-out — keep it SHORT: just the window label + the event, so you
+  // know *which* terminal needs you. Reading a long summary aloud gets cut off
+  // (and slows synthesis). Opt into reading the full message with
+  // speakAgentMessage:true.
+  const spokenBody = config.speakAgentMessage && message ? fullBody : fromTemplate || fallback;
+  const speakText = config.speakLabel !== false && label ? `${label}、${spokenBody}` : spokenBody;
 
   // Voice precedence (most specific first):
   //   $AI_NOTIFY_VOICE  — set per terminal window/pane to give each its own voice
@@ -148,7 +149,7 @@ export const emit = ({ provider = 'default', event = 'done', label = '', message
     banner(
       waiting ? `⏳ ${label || 'input'}` : `✓ ${label || 'done'}`,
       waiting ? 'waiting for input' : '',
-      coreBody,
+      fullBody,
       {
         // Click the notification to bring the waiting app (e.g. the IDE) forward.
         activate: config.notifyActivate !== false ? process.env.__CFBundleIdentifier : undefined,

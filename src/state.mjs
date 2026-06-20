@@ -64,10 +64,11 @@ export const DEFAULT_CONFIG = {
   highlightColor: 'yellow',
   // Make the desktop notification click bring the terminal/IDE forward.
   notifyActivate: true,
-  // Whether to speak the agent's own text (Codex's reply, a Claude prompt).
-  // That text is in the agent's language — set this false to keep every spoken
-  // read-out in your own language via doneMessage / waitingMessage instead.
-  speakAgentMessage: true,
+  // Speak the agent's full message aloud (Codex's reply, a Claude prompt, the
+  // done-summary)? Default false = the read-out stays short ("<label> finished")
+  // so it never gets cut off; the full text still shows in the desktop banner.
+  // Set true to read the whole thing aloud.
+  speakAgentMessage: false,
   // Optional: translate the agent's message into this language before speaking
   // it (e.g. 'ja'). Empty = off. Key-less, no cost; makes a network request.
   // Toggle with `ai-notify translate on ja` / `off`.
