@@ -27,7 +27,7 @@ import {
   updatePaneSetting,
 } from './state.mjs';
 
-const VERSION = '0.2.0';
+const VERSION = '0.2.1';
 
 const args = process.argv.slice(2);
 const cmd = args[0];
