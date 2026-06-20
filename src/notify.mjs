@@ -90,11 +90,19 @@ export const emit = ({ provider = 'default', event = 'done', label = '', message
   const p = config.providers[provider] || config.providers.default;
 
   const soundName = (p.sound && (p.sound[event] || p.sound.done)) || null;
-  const speakText = message || `${label} ${event === 'waiting' ? 'is waiting for input' : 'finished'}`.trim();
+  const template = (event === 'waiting' ? config.waitingMessage : config.doneMessage) || '';
+  const fromTemplate = template.replace(/\{label\}/g, label).replace(/\s+/g, ' ').trim();
+  const speakText = message || fromTemplate || (event === 'waiting' ? 'is waiting for input' : 'finished');
+
+  // Voice precedence (most specific first):
+  //   $AI_NOTIFY_VOICE  — set per terminal window/pane to give each its own voice
+  //   provider voice    — per agent (Claude vs Codex)
+  //   global voice      — the single `ai-notify voice` switch
+  const voice = process.env.AI_NOTIFY_VOICE || p.voice || config.voice;
 
   if (!muted) {
     playSound(soundName);
-    if (config.speak) speak(speakText, p.voice);
+    if (config.speak) speak(speakText, voice);
   }
 
   if (!muted || config.bannerWhenMuted) {

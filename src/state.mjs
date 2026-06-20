@@ -58,6 +58,16 @@ export const DEFAULT_CONFIG = {
   // Spoken confirmation when you un-mute. Override per language/voice — e.g. a
   // Japanese TTS voice reads the English word more naturally in katakana.
   onMessage: 'notifications on',
+  // Global TTS voice for the spoken read-out (macOS `say` voice name, e.g.
+  // 'Kyoko'). Empty = OS default voice. Switch it with `ai-notify voice`. A
+  // per-provider `voice` below, if set, overrides this for that agent.
+  voice: '',
+  // Spoken read-out templates for agent events. `{label}` is the working-dir
+  // name. Override per language (e.g. Japanese) in config.json. An agent that
+  // supplies its own message (Codex's last reply, a Claude prompt) wins over
+  // these.
+  doneMessage: '{label} finished',
+  waitingMessage: '{label} is waiting for input',
   providers: {
     claude: { sound: { waiting: 'Glass', done: 'Hero' }, voice: '' },
     codex: { sound: { done: 'Submarine' }, voice: '' },

@@ -6,6 +6,7 @@ import { readFileSync } from 'node:fs';
 import { providers, byId } from './providers/index.mjs';
 import { emit } from './notify.mjs';
 import { deriveLabel, cliInvocation, isEphemeralInstall } from './util.mjs';
+import { curatedVoices, resolveVoice, previewVoice } from './voices.mjs';
 import { isMuted, setMuted, toggleMuted, readConfig, writeConfig, paths, DEFAULT_CONFIG } from './state.mjs';
 
 const VERSION = '0.1.0';
@@ -115,6 +116,67 @@ const cmds = {
     }
   },
 
+  // Pick the spoken read-out voice from the machine's built-in `say` voices.
+  // Offline, free, no API. Different voice per task = tell terminals apart.
+  voice() {
+    const sub = positionals[0];
+    const config = readConfig();
+    const list = curatedVoices(10);
+    const sample =
+      (config.doneMessage || 'finished').replace(/\{label\}/g, 'ai-notify').replace(/\s+/g, ' ').trim() ||
+      'finished';
+
+    const setVoice = (name) => {
+      config.voice = name; // '' = OS default
+      // Global voice wins only if no per-provider override; clear them so the
+      // single switch actually takes effect everywhere.
+      for (const k of Object.keys(config.providers || {})) {
+        if (config.providers[k]) delete config.providers[k].voice;
+      }
+      writeConfig(config);
+    };
+
+    if (sub === 'preview' || sub === 'test' || sub === 'all') {
+      if (!list.length) return log('No `say` voices found (this is a macOS feature).');
+      log('Previewing voices — listen, then:  ai-notify voice <number>\n');
+      list.forEach((n, i) => {
+        log(`  ${String(i + 1).padStart(2)}. ${n}`);
+        previewVoice(n, `${i + 1}番。${n}。${sample}`);
+      });
+      return;
+    }
+
+    if (sub === 'default' || sub === 'off' || sub === 'reset' || sub === 'none') {
+      setVoice('');
+      return log('Voice reset to the OS default.');
+    }
+
+    if (sub) {
+      const picked = resolveVoice(sub, list);
+      if (!picked) {
+        console.error(`unknown voice: ${sub}   (see: ai-notify voice)`);
+        process.exit(1);
+      }
+      setVoice(picked);
+      log(`🔊 voice → ${picked}`);
+      previewVoice(picked, sample);
+      return;
+    }
+
+    // No arg: list the menu.
+    if (!list.length) {
+      log('No `say` voices found — voice selection is a macOS feature.');
+      log('On other platforms, set "voice" in config.json to any name your TTS accepts.');
+      return;
+    }
+    const current = config.voice || '(OS default)';
+    log(`Current voice: ${current}\n`);
+    list.forEach((n, i) => log(`  ${String(i + 1).padStart(2)}. ${n}${n === config.voice ? '   ← current' : ''}`));
+    log('\n  Choose:   ai-notify voice <number|name>');
+    log('  Hear all: ai-notify voice preview');
+    log('  Reset:    ai-notify voice default');
+  },
+
   hook() {
     const source = opt('source', 'default');
     let event = opt('event', 'done');
@@ -155,8 +217,13 @@ Usage:
   ai-notify init [--dry-run] [--only claude,codex]   wire detected agents
   ai-notify uninstall [--only ...]                   remove wiring
   ai-notify toggle | on | off | status               control the mute switch
+  ai-notify voice [number|name|preview|default]      pick the spoken voice
   ai-notify doctor                                    check deps & wiring
   ai-notify config [init]                             print (or write) config
+
+Per-window overrides (export in a terminal before launching the agent):
+  AI_NOTIFY_VOICE=Eddy    give this window/pane its own spoken voice
+  AI_NOTIFY_LABEL=api     name this window in the spoken/banner read-out
 
 Make it one tap: bind a hotkey / menubar button to \`ai-notify toggle\`
 (see recipes/ for macOS Shortcuts, Raycast, Stream Deck).`);
