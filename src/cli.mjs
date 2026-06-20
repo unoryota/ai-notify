@@ -9,6 +9,7 @@ import { deriveLabel, cliInvocation, isEphemeralInstall } from './util.mjs';
 import { curatedVoices, resolveVoice, previewVoice } from './voices.mjs';
 import * as menubar from './menubar.mjs';
 import { translate } from './translate.mjs';
+import { diagnose as highlightDiagnose, clearHighlight } from './highlight.mjs';
 import { isMuted, setMuted, toggleMuted, readConfig, writeConfig, paths, DEFAULT_CONFIG } from './state.mjs';
 
 const VERSION = '0.1.0';
@@ -242,6 +243,24 @@ const cmds = {
     // status
     log(`translation: ${config.translateTo ? `on → ${config.translateTo}` : 'off'}`);
     if (!config.translateTo) log('Enable:  ai-notify translate on ja');
+  },
+
+  // Diagnose / test the waiting-window highlight. Run it INSIDE the terminal
+  // tab you want to test (not piped) so it has a controlling tty.
+  highlight() {
+    const sub = positionals[0] || 'test';
+    if (sub === 'clear') {
+      clearHighlight();
+      return log('cleared.');
+    }
+    const color = positionals[1] || readConfig().highlightColor || 'yellow';
+    const info = highlightDiagnose(color);
+    log(JSON.stringify(info, null, 2));
+    log('\nThis tab should now be highlighted. Reset it with: ai-notify highlight clear');
+    if (info.appleTerminal && String(info.appleTerminal).startsWith('ERROR')) {
+      log('\n→ AppleScript was blocked. Grant permission in:');
+      log('  System Settings → Privacy & Security → Automation → (your terminal) → Terminal');
+    }
   },
 
   hook() {

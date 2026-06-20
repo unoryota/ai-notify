@@ -162,6 +162,55 @@ export const highlightWaiting = (label, color = 'yellow') => {
   }
 };
 
+// Foreground diagnostic: run the highlight and surface what happened (tty,
+// terminal, AppleScript error/permission) instead of swallowing it.
+export const diagnose = (color = 'yellow') => {
+  const info = {
+    platform: process.platform,
+    TERM_PROGRAM: process.env.TERM_PROGRAM || null,
+    TMUX: process.env.TMUX ? process.env.TMUX_PANE || true : false,
+    tty: ttyName(),
+  };
+  try {
+    writeTty(oscSet(colorHex(color), '⏳ test'));
+    info.osc = `wrote to ${ttyName() || '/dev/tty'}`;
+  } catch (e) {
+    info.osc = `error: ${e.message}`;
+  }
+  if (isAppleTerminal()) {
+    const tty = ttyName();
+    if (!tty) {
+      info.appleTerminal = 'no controlling tty';
+    } else {
+      const script = `tell application "Terminal"
+  repeat with w in windows
+    repeat with t in tabs of w
+      try
+        if (tty of t) is "${tty}" then
+          set c to background color of t
+          set background color of t to {${rgb16From(color)}}
+          return "matched tty, original=" & (c as string)
+        end if
+      end try
+    end repeat
+  end repeat
+  return "no tab matched tty ${tty}"
+end tell`;
+      try {
+        info.appleTerminal = execFileSync('osascript', ['-e', script], {
+          encoding: 'utf8',
+          timeout: 5000,
+        }).trim();
+      } catch (e) {
+        info.appleTerminal = `ERROR: ${(e.stderr || e.message || '').toString().trim()}`;
+      }
+    }
+  } else {
+    info.appleTerminal = 'TERM_PROGRAM is not Apple_Terminal';
+  }
+  return info;
+};
+
 export const clearHighlight = () => {
   const tty = ttyName();
   if (tty && !existsSync(markPath(tty))) return; // we never highlighted this one
