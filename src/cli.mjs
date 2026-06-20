@@ -44,6 +44,37 @@ const readStdinJson = () => {
   }
 };
 
+// Pull the agent's last assistant text from a Claude Code transcript (JSONL),
+// trimmed to a short summary suitable for a notification / read-out.
+const lastAssistantText = (transcriptPath) => {
+  try {
+    const lines = readFileSync(transcriptPath, 'utf8').split('\n');
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const line = lines[i].trim();
+      if (!line) continue;
+      let obj;
+      try {
+        obj = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      if (obj.type !== 'assistant') continue;
+      const content = obj.message?.content;
+      if (!Array.isArray(content)) continue;
+      const text = content
+        .filter((c) => c?.type === 'text' && c.text)
+        .map((c) => c.text)
+        .join(' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (text) return text.length > 140 ? `${text.slice(0, 140)}…` : text;
+    }
+  } catch {
+    /* unreadable transcript — fall back to the template */
+  }
+  return '';
+};
+
 const cmds = {
   init() {
     const dryRun = !!opt('dry-run');
@@ -282,6 +313,12 @@ const cmds = {
       const data = readStdinJson();
       cwd = data.cwd || '';
       message = data.message || '';
+      // The Stop hook has no message, so "done" would only say "finished".
+      // Pull the agent's last reply from the transcript so the notification
+      // says WHAT was done.
+      if (!message && event === 'done' && data.transcript_path) {
+        message = lastAssistantText(data.transcript_path);
+      }
     }
 
     const label = deriveLabel(cwd);

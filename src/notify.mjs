@@ -138,8 +138,8 @@ export const emit = ({ provider = 'default', event = 'done', label = '', message
   if (!muted || config.bannerWhenMuted) {
     const waiting = event === 'waiting';
     banner(
-      waiting ? `⏳ ${label || 'input'}` : label || 'AI Notify',
-      waiting ? 'waiting for input' : provider || '',
+      waiting ? `⏳ ${label || 'input'}` : `✓ ${label || 'done'}`,
+      waiting ? 'waiting for input' : '',
       coreBody,
       {
         // Click the notification to bring the waiting app (e.g. the IDE) forward.
