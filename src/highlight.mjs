@@ -78,10 +78,16 @@ const tmuxReset = () => {
 const isAppleTerminal = () => {
   if (!isMac) return false;
   const tp = process.env.TERM_PROGRAM;
-  if (tp === 'Apple_Terminal') return true;
-  if (process.env.__CFBundleIdentifier === 'com.apple.Terminal') return true;
-  return !tp; // unknown terminal -> try; the tty match guards it
+  const bundle = process.env.__CFBundleIdentifier || '';
+  if (tp === 'Apple_Terminal' || bundle === 'com.apple.Terminal') return true;
+  if (tp || bundle) return false; // a known other terminal/IDE (iTerm, WebStorm…)
+  return true; // truly unknown -> attempt; the tty match guards it
 };
+
+// JetBrains IDE terminals (WebStorm, IntelliJ, …) — JediTerm/Gen2.
+const isJetBrains = () =>
+  process.env.TERMINAL_EMULATOR === 'JetBrains-JediTerm' ||
+  /jetbrains/i.test(process.env.__CFBundleIdentifier || '');
 const savePath = (tty) => join(stateDir(), `hl-${tty.replace(/[^\w]+/g, '_')}`);
 
 const appleSet = (rgb16) => {
