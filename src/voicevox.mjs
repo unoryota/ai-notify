@@ -55,8 +55,26 @@ export const listSpeakers = (url = DEFAULT_URL) => {
   }
 };
 
-const playWav = (wav) => {
-  if (platform === 'darwin') execFileSync('afplay', [wav], { timeout: 30000 });
+// One entry per character (preferring the ノーマル style) — a short, pickable
+// list for the menu bar, vs the full style list from listSpeakers.
+export const listCharacters = (url = DEFAULT_URL) => {
+  try {
+    const out = execFileSync('curl', ['-s', '-m', '4', `${url}/speakers`], { encoding: 'utf8', timeout: 5000 });
+    const data = JSON.parse(out);
+    const rows = [];
+    for (const sp of data) {
+      const styles = sp.styles || [];
+      const pick = styles.find((s) => s.name === 'ノーマル') || styles[0];
+      if (pick) rows.push({ id: pick.id, name: sp.name });
+    }
+    return rows;
+  } catch {
+    return [];
+  }
+};
+
+const playWav = (wav, vol = 1) => {
+  if (platform === 'darwin') execFileSync('afplay', ['-v', String(vol), wav], { timeout: 30000 });
   else if (platform === 'linux') {
     try {
       execFileSync('aplay', ['-q', wav], { timeout: 30000 });
@@ -67,7 +85,7 @@ const playWav = (wav) => {
 };
 
 // Synthesize and play. Returns true if it spoke, false to fall back to `say`.
-export const speak = (text, speaker = 3, url = DEFAULT_URL, timeoutMs = 15000) => {
+export const speak = (text, speaker = 3, url = DEFAULT_URL, vol = 1, timeoutMs = 15000) => {
   if (!text) return false;
   let dir;
   try {
@@ -85,7 +103,7 @@ export const speak = (text, speaker = 3, url = DEFAULT_URL, timeoutMs = 15000) =
       logFail(`empty/short wav (speaker ${speaker}, ${text.length} chars)`);
       return false;
     }
-    playWav(wav);
+    playWav(wav, vol);
     return true;
   } catch (e) {
     logFail(`error (speaker ${speaker}): ${(e && e.message) || e}`);

@@ -4,9 +4,11 @@
 // so a Linux box without `notify-send` (or a Mac without `terminal-notifier`)
 // never errors — it just does what it can.
 
-import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
-import { isMuted, readConfig } from './state.mjs';
+import { spawn, execFileSync } from 'node:child_process';
+import { existsSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { isMuted, readConfig, readVolume } from './state.mjs';
 import { translate } from './translate.mjs';
 import { highlightWaiting, clearHighlight } from './highlight.mjs';
 import * as voicevox from './voicevox.mjs';
@@ -35,13 +37,14 @@ const resolveSound = (name) => {
   return name; // linux/win: treated as a freedesktop event id / ignored
 };
 
-const playSound = (name) => {
+const playSound = (name, vol = 1) => {
   const sound = resolveSound(name);
   if (platform === 'darwin') {
     if (sound && existsSync(sound)) {
       // play twice, a touch louder, so it is hard to miss
-      run('afplay', ['-v', '2', sound]);
-      run('afplay', ['-v', '2', sound]);
+      const v = String(2 * vol);
+      run('afplay', ['-v', v, sound]);
+      run('afplay', ['-v', v, sound]);
     }
   } else if (platform === 'linux') {
     if (which('paplay') && existsSync('/usr/share/sounds/freedesktop/stereo/complete.oga')) {
@@ -56,9 +59,23 @@ const playSound = (name) => {
   }
 };
 
-const speak = (text, voice) => {
+// `say` has no per-call volume, so when a non-default volume is set we render to
+// a file and play it through afplay at the requested level.
+const sayWithVolume = (text, voice, vol) => {
+  try {
+    const tmp = join(tmpdir(), `ai-notify-say-${process.pid}.aiff`);
+    execFileSync('say', voice ? ['-v', voice, '-o', tmp, text] : ['-o', tmp, text], { timeout: 30000 });
+    execFileSync('afplay', ['-v', String(vol), tmp], { timeout: 30000 });
+    rmSync(tmp, { force: true });
+  } catch {
+    /* ignore */
+  }
+};
+
+const speak = (text, voice, vol = 1) => {
   if (!text) return;
   if (platform === 'darwin') {
+    if (vol !== 1) return sayWithVolume(text, voice, vol);
     run('say', voice ? ['-v', voice, text] : [text]);
   } else if (platform === 'linux') {
     if (which('spd-say')) run('spd-say', [text]);
@@ -148,15 +165,26 @@ export const emit = ({ provider = 'default', event = 'done', label = '', message
   //   global voice      — the single `ai-notify voice` switch
   const voice = process.env.AI_NOTIFY_VOICE || p.voice || config.voice;
 
+  // Volume (0–2): per-window env > the menu bar slider / `ai-notify volume` > config.
+  const envVol = parseFloat(process.env.AI_NOTIFY_VOLUME);
+  const fileVol = readVolume();
+  const vol = Number.isFinite(envVol)
+    ? Math.min(2, Math.max(0, envVol))
+    : fileVol != null
+      ? fileVol
+      : typeof config.volume === 'number'
+        ? config.volume
+        : 1;
+
   if (!muted) {
-    playSound(soundName);
-    if (config.speak) {
+    playSound(soundName, vol);
+    if (config.speak && vol > 0) {
       let spoken = false;
       if (config.tts === 'voicevox') {
         const speaker = process.env.AI_NOTIFY_VOICEVOX_SPEAKER || config.voicevox?.speaker;
-        spoken = voicevox.speak(speakText, speaker, config.voicevox?.url);
+        spoken = voicevox.speak(speakText, speaker, config.voicevox?.url, vol);
       }
-      if (!spoken) speak(speakText, voice); // OS `say` (also the VOICEVOX fallback)
+      if (!spoken) speak(speakText, voice, vol); // OS `say` (also the VOICEVOX fallback)
     }
   }
 

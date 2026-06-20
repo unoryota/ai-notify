@@ -11,7 +11,17 @@ import * as menubar from './menubar.mjs';
 import { translate } from './translate.mjs';
 import { diagnose as highlightDiagnose, clearHighlight } from './highlight.mjs';
 import * as voicevox from './voicevox.mjs';
-import { isMuted, setMuted, toggleMuted, readConfig, writeConfig, paths, DEFAULT_CONFIG } from './state.mjs';
+import {
+  isMuted,
+  setMuted,
+  toggleMuted,
+  readConfig,
+  writeConfig,
+  paths,
+  DEFAULT_CONFIG,
+  readVolume,
+  setVolume,
+} from './state.mjs';
 
 const VERSION = '0.1.2';
 
@@ -163,6 +173,7 @@ const cmds = {
 
     const setVoice = (name) => {
       config.voice = name; // '' = OS default
+      config.tts = 'say'; // choosing a system voice switches the backend off VOICEVOX
       // Global voice wins only if no per-provider override; clear them so the
       // single switch actually takes effect everywhere.
       for (const k of Object.keys(config.providers || {})) {
@@ -252,6 +263,50 @@ const cmds = {
     log(`VOICEVOX: ${config.tts === 'voicevox' ? `on (speaker ${config.voicevox?.speaker})` : 'off'}`);
     log(`  engine ${url}: ${voicevox.isAvailable(url) ? '✓ reachable' : '✗ not running'}`);
     if (config.tts !== 'voicevox') log('\nEnable:  ai-notify voicevox on    (list voices: ai-notify voicevox speakers)');
+  },
+
+  // Output volume 0.0–2.0 (1.0 = normal). Written to a state file the menu bar
+  // slider also drives; $AI_NOTIFY_VOLUME overrides per window.
+  volume() {
+    const arg = positionals[0];
+    if (arg === undefined) {
+      const config = readConfig();
+      const v = readVolume();
+      return log(`volume: ${v != null ? v : typeof config.volume === 'number' ? config.volume : 1}`);
+    }
+    const n = setVolume(arg);
+    log(`🔊 volume → ${n}`);
+  },
+
+  // Machine-readable state for the menu bar agent (current mute/volume + the
+  // selectable voices). Not for humans.
+  'menu-json'() {
+    const config = readConfig();
+    const url = config.voicevox?.url || voicevox.DEFAULT_URL;
+    const out = {
+      muted: isMuted(),
+      volume: readVolume() != null ? readVolume() : typeof config.volume === 'number' ? config.volume : 1,
+      voices: [],
+    };
+    if (voicevox.isAvailable(url)) {
+      for (const s of voicevox.listCharacters(url)) {
+        out.voices.push({
+          section: 'VOICEVOX',
+          label: s.name,
+          current: config.tts === 'voicevox' && Number(config.voicevox?.speaker) === s.id,
+          cmd: ['voicevox', 'on', String(s.id)],
+        });
+      }
+    }
+    for (const n of curatedVoices(10)) {
+      out.voices.push({
+        section: 'System',
+        label: n,
+        current: config.tts !== 'voicevox' && config.voice === n,
+        cmd: ['voice', n],
+      });
+    }
+    log(JSON.stringify(out));
   },
 
   // Native menu bar bell (macOS). Self-contained — no Hammerspoon/SwiftBar.
@@ -383,6 +438,7 @@ Usage:
   ai-notify init [--dry-run] [--only claude,codex]   wire detected agents
   ai-notify uninstall [--only ...]                   remove wiring
   ai-notify toggle | on | off | status               control the mute switch
+  ai-notify volume [0.0-2.0]                          get/set output volume
   ai-notify voice [number|name|preview|default]      pick the spoken voice
   ai-notify voicevox [on <id>|off|speakers|test]     speak in VOICEVOX character voices
   ai-notify menubar [install|uninstall|status]       native menu bar bell (macOS)

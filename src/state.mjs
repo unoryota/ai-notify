@@ -45,6 +45,28 @@ export const setMuted = (muted) => {
 
 export const toggleMuted = () => setMuted(!isMuted());
 
+// --- Volume ----------------------------------------------------------------
+// A single number (0.0–2.0) in a state file, written by the menu bar slider or
+// `ai-notify volume`, read at fire time — just like the mute flag.
+
+const volumeFlagPath = () => join(stateDir(), 'volume');
+
+export const readVolume = () => {
+  try {
+    const v = parseFloat(readFileSync(volumeFlagPath(), 'utf8'));
+    return Number.isFinite(v) ? Math.min(2, Math.max(0, v)) : null;
+  } catch {
+    return null;
+  }
+};
+
+export const setVolume = (v) => {
+  const n = Math.min(2, Math.max(0, Number(v)));
+  ensureDir(stateDir());
+  writeFileSync(volumeFlagPath(), String(n));
+  return n;
+};
+
 // --- Config ----------------------------------------------------------------
 
 // Sounds default to OS built-ins so we ship no audio assets (clean repo, no
@@ -55,6 +77,10 @@ export const DEFAULT_CONFIG = {
   bannerWhenMuted: true,
   // Spoken read-out of which terminal finished (helps tell tabs apart).
   speak: true,
+  // Output volume 0.0–2.0 (1.0 = normal). The menu bar slider / `ai-notify
+  // volume` write a state file that overrides this; $AI_NOTIFY_VOLUME overrides
+  // per window. Applies to sounds, the spoken voice, and VOICEVOX.
+  volume: 1.0,
   // Prefix the window label to the SPOKEN read-out. Off by default — the task
   // gist already identifies the pane, and the label (often the working dir) just
   // adds slow filler. Turn on if you set a short $AI_NOTIFY_LABEL per window.
@@ -117,4 +143,4 @@ export const writeConfig = (config) => {
   return configPath();
 };
 
-export const paths = { muteFlagPath, configPath, stateDir, configDir };
+export const paths = { muteFlagPath, configPath, stateDir, configDir, volumeFlagPath };

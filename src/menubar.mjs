@@ -10,8 +10,10 @@
 import { homedir, platform } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { existsSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync, rmSync, chmodSync } from 'node:fs';
 import { execFileSync, spawnSync } from 'node:child_process';
+import { cliInvocation } from './util.mjs';
+import { stateDir } from './state.mjs';
 
 export const LABEL = 'com.ai-notify.menubar';
 
@@ -81,9 +83,21 @@ const unload = () => {
   return r;
 };
 
+// A tiny launcher the menu bar app shells out to for data/actions, so it works
+// regardless of PATH (embeds the resolved node + cli path).
+const writeCliWrapper = () => {
+  const { node, cliPath } = cliInvocation();
+  const p = join(stateDir(), 'cli');
+  mkdirSync(stateDir(), { recursive: true });
+  writeFileSync(p, `#!/bin/sh\nexec "${node}" "${cliPath}" "$@"\n`);
+  chmodSync(p, 0o755);
+  return p;
+};
+
 export const install = () => {
   if (!isMac()) throw new Error('the menu bar agent is macOS-only');
   if (!isBuilt()) build();
+  writeCliWrapper();
   writePlist();
   load();
   return { app: appPath(), plist: plistPath() };
