@@ -8,6 +8,7 @@ import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { isMuted, readConfig } from './state.mjs';
 import { translate } from './translate.mjs';
+import { highlightWaiting, clearHighlight } from './highlight.mjs';
 
 const platform = process.platform; // 'darwin' | 'linux' | 'win32'
 
@@ -101,16 +102,17 @@ export const emit = ({ provider = 'default', event = 'done', label = '', message
   //                               (falling back to the template on failure).
   //   default                  -> speak the raw message as-is.
   // The desktop banner always shows the full original message visually.
+  // Prefix the window label so you can tell which of many terminals is asking
+  // (especially for "waiting" — what is being confirmed, and where). The
+  // template path already substitutes {label}; we only prefix the message path.
+  const withLabel = (body) =>
+    config.speakLabel !== false && label && body ? `${label}、${body}` : body;
   let speakText;
   if (config.speakAgentMessage === false) {
     speakText = fromTemplate || fallback;
   } else if (message) {
-    if (config.translateTo) {
-      const translated = translate(message, config.translateTo);
-      speakText = translated || fromTemplate || fallback;
-    } else {
-      speakText = message;
-    }
+    const body = config.translateTo ? translate(message, config.translateTo) : message;
+    speakText = body ? withLabel(body) : fromTemplate || fallback;
   } else {
     speakText = fromTemplate || fallback;
   }
@@ -129,5 +131,17 @@ export const emit = ({ provider = 'default', event = 'done', label = '', message
   if (!muted || config.bannerWhenMuted) {
     const title = 'AI Notify';
     banner(title, label || provider, message || speakText);
+  }
+
+  // Visual highlight of *this* terminal window so a waiting pane stands out
+  // among many. Always best-effort, and applied even when muted (you still want
+  // to see which window needs you during a meeting).
+  if (config.highlightWaiting) {
+    try {
+      if (event === 'waiting') highlightWaiting(label, config.highlightColor);
+      else if (event === 'done') clearHighlight();
+    } catch {
+      /* visual is best-effort */
+    }
   }
 };

@@ -55,6 +55,13 @@ export const DEFAULT_CONFIG = {
   bannerWhenMuted: true,
   // Spoken read-out of which terminal finished (helps tell tabs apart).
   speak: true,
+  // Prefix the window label to the spoken message so you can tell which of many
+  // terminals is asking (set a short per-window name with $AI_NOTIFY_LABEL).
+  speakLabel: true,
+  // Visually highlight the waiting terminal window/pane (best-effort, by tty).
+  // Off by default; the color is yellow / orange / red / green / #RRGGBB.
+  highlightWaiting: false,
+  highlightColor: 'yellow',
   // Whether to speak the agent's own text (Codex's reply, a Claude prompt).
   // That text is in the agent's language — set this false to keep every spoken
   // read-out in your own language via doneMessage / waitingMessage instead.
