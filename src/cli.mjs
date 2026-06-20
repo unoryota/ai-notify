@@ -3,6 +3,7 @@
 // One mute switch for all of them, across every terminal. No daemon.
 
 import { readFileSync } from 'node:fs';
+import { execSync } from 'node:child_process';
 import { providers, byId } from './providers/index.mjs';
 import { emit } from './notify.mjs';
 import { deriveLabel, cliInvocation, isEphemeralInstall } from './util.mjs';
@@ -87,6 +88,26 @@ const lastAssistantText = (transcriptPath) => {
     /* unreadable transcript — fall back to the template */
   }
   return '';
+};
+
+// Terminals (ttys) currently running a wired agent — so all open panes can be
+// assigned a voice from the menu bar without first firing a notification.
+const livePanes = () => {
+  try {
+    const out = execSync('ps -Ao tty=,command=', { encoding: 'utf8', maxBuffer: 1 << 22 });
+    const ttys = new Set();
+    for (const line of out.split('\n')) {
+      const m = line.match(/^(\S+)\s+(.*)$/);
+      if (!m) continue;
+      const [, tty, cmd] = m;
+      if (tty === '??' || tty === '?') continue;
+      if (/ai-notify|menubar/.test(cmd)) continue; // skip our own hook/agent
+      if (/\bclaude\b|\bcodex\b|\bgemini\b/i.test(cmd)) ttys.add(`/dev/${tty}`);
+    }
+    return [...ttys];
+  } catch {
+    return [];
+  }
 };
 
 const cmds = {
@@ -330,10 +351,14 @@ const cmds = {
       if (!pv) return null;
       return pv.tts === 'voicevox' ? idName.get(Number(pv.speaker)) || `VOICEVOX ${pv.speaker}` : pv.voice || 'system';
     };
-    const panes = readPanes().map((p) => ({
-      tty: p.tty,
-      label: p.label || p.tty.replace('/dev/', ''),
-      current: labelFor(readPaneVoice(p.tty)),
+    // Panes = live terminals currently running an agent (so they show up before
+    // they ever fire a notification) merged with previously-recorded ones.
+    const recorded = new Map(readPanes().map((p) => [p.tty, p.label]));
+    const ttys = new Set([...livePanes(), ...recorded.keys()]);
+    const panes = [...ttys].map((tty) => ({
+      tty,
+      label: recorded.get(tty) || tty.replace('/dev/', ''),
+      current: labelFor(readPaneVoice(tty)),
     }));
     log(
       JSON.stringify({
