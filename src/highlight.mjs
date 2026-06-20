@@ -41,6 +41,15 @@ const writeTty = (seq) => {
 const oscSet = (hex, title) => `\x1b]11;${hex}${BEL}\x1b]1;${title}${BEL}\x1b]2;${title}${BEL}`;
 const oscReset = `\x1b]111${BEL}\x1b]1;${BEL}\x1b]2;${BEL}`;
 
+// SGR fallback that works even where OSC is ignored (e.g. JetBrains JediTerm):
+// print a bold black-on-yellow bar straight into the pane, plus a BEL so the
+// IDE flags the tab as having activity. Standard ANSI — renders everywhere.
+const sgrBg = { yellow: 103, orange: '48;5;208', red: 101, green: 102 };
+const sgrBar = (label, color) => {
+  const bg = sgrBg[color] || sgrBg.yellow;
+  return `\r\n\x1b[1;30;${bg}m  ⏳ ${label || 'input'}  \x1b[0m${BEL}\r\n`;
+};
+
 const colorHex = (c) => {
   const map = { yellow: '#FFD400', orange: '#FF9500', red: '#FF3B30', green: '#34C759' };
   if (!c) return map.yellow;
@@ -166,6 +175,7 @@ const markPath = (tty) => join(stateDir(), `hl-on-${tty.replace(/[^\w]+/g, '_')}
 
 export const highlightWaiting = (label, color = 'yellow') => {
   writeTty(oscSet(colorHex(color), `⏳ ${label || 'input'}`));
+  if (isJetBrains()) writeTty(sgrBar(label, color)); // OSC ignored here; SGR works
   if (isAppleTerminal()) appleSet(rgb16From(color));
   tmuxSet(color);
   const tty = ttyName();
@@ -195,6 +205,11 @@ export const diagnose = (color = 'yellow') => {
     info.osc = `wrote to ${ttyName() || '/dev/tty'}`;
   } catch (e) {
     info.osc = `error: ${e.message}`;
+  }
+  info.jetBrains = isJetBrains();
+  if (isJetBrains()) {
+    writeTty(sgrBar('test', color)); // should print a yellow bar right here
+    info.sgrBar = 'printed (look for the yellow bar above)';
   }
   if (isAppleTerminal()) {
     const tty = ttyName();

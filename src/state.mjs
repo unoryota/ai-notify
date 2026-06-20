@@ -62,6 +62,8 @@ export const DEFAULT_CONFIG = {
   // Off by default; the color is yellow / orange / red / green / #RRGGBB.
   highlightWaiting: false,
   highlightColor: 'yellow',
+  // Make the desktop notification click bring the terminal/IDE forward.
+  notifyActivate: true,
   // Whether to speak the agent's own text (Codex's reply, a Claude prompt).
   // That text is in the agent's language — set this false to keep every spoken
   // read-out in your own language via doneMessage / waitingMessage instead.
@@ -77,12 +79,12 @@ export const DEFAULT_CONFIG = {
   // 'Kyoko'). Empty = OS default voice. Switch it with `ai-notify voice`. A
   // per-provider `voice` below, if set, overrides this for that agent.
   voice: '',
-  // Spoken read-out templates for agent events. `{label}` is the working-dir
-  // name. Override per language (e.g. Japanese) in config.json. An agent that
-  // supplies its own message (Codex's last reply, a Claude prompt) wins over
-  // these.
-  doneMessage: '{label} finished',
-  waitingMessage: '{label} is waiting for input',
+  // Spoken read-out templates for agent events. The window label is added
+  // separately (speakLabel), so leave {label} out here to avoid doubling it.
+  // Override per language (e.g. Japanese) in config.json. An agent that supplies
+  // its own message (Codex's last reply, a Claude prompt) wins over these.
+  doneMessage: 'finished',
+  waitingMessage: 'is waiting for input',
   providers: {
     claude: { sound: { waiting: 'Glass', done: 'Hero' }, voice: '' },
     codex: { sound: { done: 'Submarine' }, voice: '' },

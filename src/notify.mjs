@@ -71,16 +71,24 @@ const speak = (text, voice) => {
   }
 };
 
-const banner = (title, subtitle, message) => {
+const banner = (title, subtitle, message, { activate, urgent } = {}) => {
   if (platform === 'darwin') {
     if (which('terminal-notifier')) {
-      run('terminal-notifier', ['-title', title, '-subtitle', subtitle, '-message', message]);
+      const args = ['-title', title, '-subtitle', subtitle, '-message', message];
+      if (activate) args.push('-activate', activate); // click the notification -> focus the app
+      run('terminal-notifier', args);
     } else {
       const esc = (s) => String(s).replace(/"/g, '\\"');
-      run('osascript', ['-e', `display notification "${esc(message)}" with title "${esc(title)}" subtitle "${esc(subtitle)}"`]);
+      run('osascript', [
+        '-e',
+        `display notification "${esc(message)}" with title "${esc(title)}" subtitle "${esc(subtitle)}"`,
+      ]);
     }
   } else if (platform === 'linux') {
-    if (which('notify-send')) run('notify-send', [`${title}: ${subtitle}`, message]);
+    if (which('notify-send')) {
+      const args = urgent ? ['-u', 'critical'] : [];
+      run('notify-send', [...args, `${title}: ${subtitle}`, message]);
+    }
   }
   // win32: skipped (no dependency-free toast); sound/voice still fire.
 };
@@ -102,20 +110,19 @@ export const emit = ({ provider = 'default', event = 'done', label = '', message
   //                               (falling back to the template on failure).
   //   default                  -> speak the raw message as-is.
   // The desktop banner always shows the full original message visually.
-  // Prefix the window label so you can tell which of many terminals is asking
-  // (especially for "waiting" — what is being confirmed, and where). The
-  // template path already substitutes {label}; we only prefix the message path.
-  const withLabel = (body) =>
-    config.speakLabel !== false && label && body ? `${label}、${body}` : body;
-  let speakText;
+  // coreBody = WHAT happened, in the user's language, without the label.
+  let coreBody;
   if (config.speakAgentMessage === false) {
-    speakText = fromTemplate || fallback;
+    coreBody = fromTemplate || fallback;
   } else if (message) {
-    const body = config.translateTo ? translate(message, config.translateTo) : message;
-    speakText = body ? withLabel(body) : fromTemplate || fallback;
+    const translated = config.translateTo ? translate(message, config.translateTo) : message;
+    coreBody = translated || fromTemplate || fallback;
   } else {
-    speakText = fromTemplate || fallback;
+    coreBody = fromTemplate || fallback;
   }
+  // Prefix the window label for the spoken read-out so you can tell which of
+  // many terminals is asking (set a short per-window name with $AI_NOTIFY_LABEL).
+  const speakText = config.speakLabel !== false && label ? `${label}、${coreBody}` : coreBody;
 
   // Voice precedence (most specific first):
   //   $AI_NOTIFY_VOICE  — set per terminal window/pane to give each its own voice
@@ -129,8 +136,17 @@ export const emit = ({ provider = 'default', event = 'done', label = '', message
   }
 
   if (!muted || config.bannerWhenMuted) {
-    const title = 'AI Notify';
-    banner(title, label || provider, message || speakText);
+    const waiting = event === 'waiting';
+    banner(
+      waiting ? `⏳ ${label || 'input'}` : label || 'AI Notify',
+      waiting ? 'waiting for input' : provider || '',
+      coreBody,
+      {
+        // Click the notification to bring the waiting app (e.g. the IDE) forward.
+        activate: config.notifyActivate !== false ? process.env.__CFBundleIdentifier : undefined,
+        urgent: waiting,
+      }
+    );
   }
 
   // Visual highlight of *this* terminal window so a waiting pane stands out
