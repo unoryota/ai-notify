@@ -102,12 +102,18 @@ export const readPanes = () =>
     .map(([tty, v]) => ({ tty, label: v.label || '', ts: v.ts || 0 }))
     .sort((a, b) => b.ts - a.ts);
 
-export const readPaneVoice = (tty) => (tty ? readJson(paneVoicesPath(), {})[tty] || null : null);
+// Per-pane settings: { tts, speaker, voice, volume }. Any subset may be set.
+export const readPaneSetting = (tty) => (tty ? readJson(paneVoicesPath(), {})[tty] || {} : {});
 
-export const setPaneVoice = (tty, voice) => {
+// Merge `patch` into the pane's settings; keys set to null are removed; an empty
+// entry is deleted entirely.
+export const updatePaneSetting = (tty, patch) => {
+  if (!tty) return;
   const all = readJson(paneVoicesPath(), {});
-  if (voice == null) delete all[tty];
-  else all[tty] = voice; // { tts:'voicevox', speaker } | { tts:'say', voice }
+  const next = { ...(all[tty] || {}), ...patch };
+  for (const k of Object.keys(next)) if (next[k] == null) delete next[k];
+  if (Object.keys(next).length === 0) delete all[tty];
+  else all[tty] = next;
   writeJson(paneVoicesPath(), all);
 };
 

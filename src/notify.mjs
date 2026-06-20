@@ -8,7 +8,7 @@ import { spawn, execFileSync } from 'node:child_process';
 import { existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { isMuted, readConfig, readVolume, recordPane, readPaneVoice } from './state.mjs';
+import { isMuted, readConfig, readVolume, recordPane, readPaneSetting } from './state.mjs';
 import { controllingTty } from './util.mjs';
 import { translate } from './translate.mjs';
 import { highlightWaiting, clearHighlight } from './highlight.mjs';
@@ -167,21 +167,24 @@ export const emit = ({ provider = 'default', event = 'done', label = '', message
   //   provider / global — config defaults
   const tty = controllingTty();
   recordPane(tty, label);
-  const pane = readPaneVoice(tty) || {};
+  const pane = readPaneSetting(tty);
   const tts = pane.tts || config.tts;
   const voice = process.env.AI_NOTIFY_VOICE || pane.voice || p.voice || config.voice;
   const speaker = process.env.AI_NOTIFY_VOICEVOX_SPEAKER || pane.speaker || config.voicevox?.speaker;
 
-  // Volume (0–2): per-window env > the menu bar slider / `ai-notify volume` > config.
+  // Volume (0–2): per-window env > this pane's slider > the global slider /
+  // `ai-notify volume` > config.
   const envVol = parseFloat(process.env.AI_NOTIFY_VOLUME);
   const fileVol = readVolume();
   const vol = Number.isFinite(envVol)
     ? Math.min(2, Math.max(0, envVol))
-    : fileVol != null
-      ? fileVol
-      : typeof config.volume === 'number'
-        ? config.volume
-        : 1;
+    : typeof pane.volume === 'number'
+      ? pane.volume
+      : fileVol != null
+        ? fileVol
+        : typeof config.volume === 'number'
+          ? config.volume
+          : 1;
 
   if (!muted) {
     playSound(soundName, vol);

@@ -82,7 +82,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func toggle() { State.setMuted(!State.isMuted); render() }
     @objc private func quit() { NSApp.terminate(nil) }
+
     @objc private func volumeChanged(_ s: NSSlider) { State.setVolume(s.doubleValue) }
+    @objc private func paneVolumeChanged(_ s: NSSlider) {
+        if let tty = s.identifier?.rawValue { State.cli(["volume-pane", tty, String(format: "%.2f", s.doubleValue)]) }
+    }
+
+    // A 🔊 + slider row. identifier == nil => global (live); otherwise a pane tty
+    // (applied on release to avoid a subprocess per drag tick).
+    private func sliderRow(value: Double, action: Selector, identifier: String?) -> NSMenuItem {
+        let row = NSView(frame: NSRect(x: 0, y: 0, width: 220, height: 26))
+        let icon = NSTextField(labelWithString: "🔊"); icon.frame = NSRect(x: 12, y: 4, width: 20, height: 18)
+        let slider = NSSlider(value: value, minValue: 0, maxValue: 2, target: self, action: action)
+        slider.frame = NSRect(x: 36, y: 3, width: 170, height: 20)
+        slider.isContinuous = (identifier == nil)
+        if let id = identifier { slider.identifier = NSUserInterfaceItemIdentifier(id) }
+        row.addSubview(icon); row.addSubview(slider)
+        let item = NSMenuItem(); item.view = row
+        return item
+    }
 
     // representedObject is the full CLI arg array to run.
     @objc private func runItem(_ item: NSMenuItem) {
@@ -98,14 +116,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func showMenu() {
         let menu = NSMenu()
 
-        // Volume slider.
-        let row = NSView(frame: NSRect(x: 0, y: 0, width: 220, height: 26))
-        let icon = NSTextField(labelWithString: "🔊"); icon.frame = NSRect(x: 12, y: 4, width: 20, height: 18)
-        let slider = NSSlider(value: State.volume, minValue: 0, maxValue: 2, target: self, action: #selector(volumeChanged(_:)))
-        slider.frame = NSRect(x: 36, y: 3, width: 170, height: 20); slider.isContinuous = true
-        row.addSubview(icon); row.addSubview(slider)
-        let volItem = NSMenuItem(); volItem.view = row
-        menu.addItem(volItem)
+        // Global volume slider.
+        menu.addItem(sliderRow(value: State.volume, action: #selector(volumeChanged(_:)), identifier: nil))
         menu.addItem(.separator())
 
         // Parse menu-json once.
@@ -132,9 +144,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 let cur = p["current"] as? String
                 let item = NSMenuItem(title: cur != nil ? "\(label) — \(cur!)" : label, action: nil, keyEquivalent: "")
                 let sub = NSMenu()
+                // Per-pane volume.
+                let pv = (p["volume"] as? Double) ?? State.volume
+                sub.addItem(disabledHeader("音量"))
+                sub.addItem(sliderRow(value: pv, action: #selector(paneVolumeChanged(_:)), identifier: tty))
+                let volDef = NSMenuItem(title: "音量を全体に従う", action: #selector(runItem(_:)), keyEquivalent: "")
+                volDef.target = self; volDef.representedObject = ["volume-pane", tty, "clear"]
+                volDef.state = (p["volumeSet"] as? Bool ?? false) ? .off : .on
+                sub.addItem(volDef)
+                sub.addItem(.separator())
+                // Per-pane voice.
+                sub.addItem(disabledHeader("声"))
                 let def = NSMenuItem(title: "デフォルト（全体に従う）", action: #selector(runItem(_:)), keyEquivalent: "")
                 def.target = self; def.representedObject = ["voice-pane", tty, "clear"]; def.state = (cur == nil) ? .on : .off
-                sub.addItem(def); sub.addItem(.separator())
+                sub.addItem(def)
                 addVoiceItems(voices, to: sub, paneTty: tty, currentPaneLabel: cur)
                 item.submenu = sub
                 menu.addItem(item)

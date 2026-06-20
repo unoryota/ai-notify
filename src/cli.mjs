@@ -23,8 +23,8 @@ import {
   readVolume,
   setVolume,
   readPanes,
-  readPaneVoice,
-  setPaneVoice,
+  readPaneSetting,
+  updatePaneSetting,
 } from './state.mjs';
 
 const VERSION = '0.1.2';
@@ -311,16 +311,33 @@ const cmds = {
       process.exit(1);
     }
     if (!kind || kind === 'clear') {
-      setPaneVoice(tty, null);
+      updatePaneSetting(tty, { tts: null, speaker: null, voice: null });
       return log(`pane ${tty}: voice reset to default`);
     }
-    if (kind === 'voicevox') setPaneVoice(tty, { tts: 'voicevox', speaker: Number(ref) });
-    else if (kind === 'say') setPaneVoice(tty, { tts: 'say', voice: ref });
+    if (kind === 'voicevox') updatePaneSetting(tty, { tts: 'voicevox', speaker: Number(ref), voice: null });
+    else if (kind === 'say') updatePaneSetting(tty, { tts: 'say', voice: ref, speaker: null });
     else {
       console.error(`unknown kind: ${kind}`);
       process.exit(1);
     }
     log(`pane ${tty}: ${kind} ${ref}`);
+  },
+
+  // Set a specific pane's output volume (0.0–2.0), or `clear` to follow global.
+  //   volume-pane <tty> <0.0-2.0|clear>
+  'volume-pane'() {
+    const [tty, arg] = positionals;
+    if (!tty || arg === undefined) {
+      console.error('usage: volume-pane <tty> <0.0-2.0|clear>');
+      process.exit(1);
+    }
+    if (arg === 'clear') {
+      updatePaneSetting(tty, { volume: null });
+      return log(`pane ${tty}: volume reset to global`);
+    }
+    const v = Math.min(2, Math.max(0, Number(arg)));
+    updatePaneSetting(tty, { volume: v });
+    log(`pane ${tty}: volume ${v}`);
   },
 
   // Machine-readable state for the menu bar agent: mute, volume, the selectable
@@ -353,13 +370,19 @@ const cmds = {
     };
     // Panes = live terminals currently running an agent (so they show up before
     // they ever fire a notification) merged with previously-recorded ones.
+    const globalVol = readVolume() != null ? readVolume() : typeof config.volume === 'number' ? config.volume : 1;
     const recorded = new Map(readPanes().map((p) => [p.tty, p.label]));
     const ttys = new Set([...livePanes(), ...recorded.keys()]);
-    const panes = [...ttys].map((tty) => ({
-      tty,
-      label: recorded.get(tty) || tty.replace('/dev/', ''),
-      current: labelFor(readPaneVoice(tty)),
-    }));
+    const panes = [...ttys].map((tty) => {
+      const s = readPaneSetting(tty);
+      return {
+        tty,
+        label: recorded.get(tty) || tty.replace('/dev/', ''),
+        current: labelFor(s.tts ? s : null),
+        volume: typeof s.volume === 'number' ? s.volume : globalVol,
+        volumeSet: typeof s.volume === 'number',
+      };
+    });
     log(
       JSON.stringify({
         muted: isMuted(),
