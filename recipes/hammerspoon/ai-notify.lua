@@ -6,8 +6,9 @@
 --     is busy running an agent, because the hotkey runs in its own process and
 --     never types into that terminal.
 --
--- The toggle is INSTANT: the icon flips immediately (optimistically) and the
--- real work runs asynchronously, so a click never waits on a subprocess.
+-- The toggle is INSTANT and RELIABLE: it writes the shared mute flag file
+-- directly (the same file ai-notify reads), so the icon always reflects the
+-- real state — it never gets ahead of a slow/failed subprocess.
 --
 -- Install:
 --   1. brew install --cask hammerspoon  (and launch it once)
@@ -26,6 +27,22 @@ local function isMuted()
   return false
 end
 
+-- Authoritative: write/remove the flag file directly. Instant, can't fail to a
+-- subprocess, and is the single source of truth ai-notify and its hooks read.
+local function setMuted(muted)
+  local p = flagPath()
+  if muted then
+    local f = io.open(p, "w")
+    if not f then
+      hs.fs.mkdir(p:match("(.*)/")) -- create the state dir if missing
+      f = io.open(p, "w")
+    end
+    if f then f:close() end
+  else
+    os.remove(p)
+  end
+end
+
 local menubar = hs.menubar.new()
 
 local function setIcon(muted)
@@ -34,23 +51,13 @@ end
 
 local function render() setIcon(isMuted()) end
 
--- Resolve absolute paths ONCE at load (interactive login shell, so nvm/Homebrew
--- PATHs are honored). Caching them lets each toggle run node directly with no
--- shell startup — fast, and independent of the task's PATH.
-local NODE = (hs.execute("command -v node", true) or ""):gsub("%s+$", "")
-local AI_NOTIFY = (hs.execute("command -v ai-notify", true) or ""):gsub("%s+$", "")
-
 local function toggle()
-  -- 1) Flip the icon immediately — never block the UI on a subprocess.
-  setIcon(not isMuted())
-  -- 2) Do the real toggle (state + confirmation sound/voice) asynchronously,
-  --    then reconcile the icon with the actual result.
-  local done = function() render() end
-  if NODE ~= "" and AI_NOTIFY ~= "" then
-    hs.task.new(NODE, done, { AI_NOTIFY, "toggle" }):start()
-  else
-    -- Fallback if resolution failed: interactive login shell on PATH.
-    hs.task.new(os.getenv("SHELL") or "/bin/zsh", done, { "-lic", "ai-notify toggle" }):start()
+  local newMuted = not isMuted()
+  setMuted(newMuted) -- flip the real state first
+  setIcon(newMuted)  -- icon always matches reality
+  if not newMuted then
+    -- brief confirmation chime on un-mute (async, best-effort)
+    hs.task.new("/usr/bin/afplay", nil, { "-v", "2", "/System/Library/Sounds/Glass.aiff" }):start()
   end
 end
 
