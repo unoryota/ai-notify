@@ -85,6 +85,18 @@ const writeJson = (p, obj) => {
 
 const panesPath = () => join(stateDir(), 'panes.json');
 const paneVoicesPath = () => join(stateDir(), 'pane-voices.json');
+const waitingPath = () => join(stateDir(), 'waiting.json');
+
+// Track which panes are waiting for input, so the menu bar icon can show a
+// status color (yellow) when any agent needs you.
+export const setPaneWaiting = (tty, waiting) => {
+  if (!tty) return;
+  const all = readJson(waitingPath(), {});
+  if (waiting) all[tty] = Date.now();
+  else delete all[tty];
+  writeJson(waitingPath(), all);
+};
+export const anyWaiting = () => Object.keys(readJson(waitingPath(), {})).length > 0;
 
 // Record this pane as active (keyed by tty). Keeps the 16 most-recent.
 export const recordPane = (tty, label) => {

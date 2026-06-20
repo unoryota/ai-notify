@@ -34,6 +34,13 @@ enum State {
               let v = Double(s.trimmingCharacters(in: .whitespacesAndNewlines)) else { return 1.0 }
         return min(2, max(0, v))
     }
+
+    // Any pane waiting for input -> the icon shows a yellow status.
+    static var hasWaiting: Bool {
+        guard let s = try? String(contentsOfFile: file("waiting.json"), encoding: .utf8) else { return false }
+        let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !t.isEmpty && t != "{}" && t != "[]"
+    }
     static func setVolume(_ v: Double) {
         try? FileManager.default.createDirectory(atPath: dir(), withIntermediateDirectories: true)
         try? String(format: "%.2f", v).write(toFile: file("volume"), atomically: true, encoding: .utf8)
@@ -73,7 +80,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in self?.render() }
     }
 
-    private func render() { statusItem.button?.title = State.isMuted ? "🔕" : "🔔" }
+    // Black/white waveform silhouette (template, auto-adapting) when idle; a
+    // composite with a colored status dot when waiting (yellow) or muted (red +
+    // slash) — Adobe-style status-by-color.
+    private func statusImage(muted: Bool, waiting: Bool) -> NSImage {
+        let cfg = NSImage.SymbolConfiguration(pointSize: 15, weight: .regular)
+        let sym = (NSImage(systemSymbolName: "waveform", accessibilityDescription: "ai-notify")?
+            .withSymbolConfiguration(cfg)) ?? NSImage()
+
+        if !muted && !waiting {
+            sym.isTemplate = true // system tints to the menu bar color
+            return sym
+        }
+
+        let dark = (statusItem.button?.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua)
+        let fg: NSColor = muted ? .tertiaryLabelColor : (dark ? .white : .black)
+        let size = sym.size
+        let img = NSImage(size: size)
+        img.lockFocus()
+        let rect = NSRect(origin: .zero, size: size)
+        sym.draw(in: rect)
+        fg.set(); rect.fill(using: .sourceAtop) // tint the silhouette
+        // status dot, top-right
+        let d: CGFloat = 6
+        (muted ? NSColor.systemRed : NSColor.systemYellow).set()
+        NSBezierPath(ovalIn: NSRect(x: size.width - d, y: size.height - d, width: d, height: d)).fill()
+        if muted { // red slash
+            let s = NSBezierPath(); s.lineWidth = 1.6
+            s.move(to: NSPoint(x: 1.5, y: 1.5)); s.line(to: NSPoint(x: size.width - 1.5, y: size.height - 1.5))
+            NSColor.systemRed.set(); s.stroke()
+        }
+        img.unlockFocus()
+        img.isTemplate = false
+        return img
+    }
+
+    private func render() {
+        guard let b = statusItem.button else { return }
+        b.title = ""
+        b.image = statusImage(muted: State.isMuted, waiting: State.hasWaiting)
+    }
 
     @objc private func handleClick(_ sender: Any?) {
         guard let e = NSApp.currentEvent else { showMenu(); return }
