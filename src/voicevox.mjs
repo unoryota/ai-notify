@@ -9,13 +9,24 @@
 // return false and the caller falls back to the OS `say` voice.
 
 import { execSync, execFileSync } from 'node:child_process';
-import { existsSync, statSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, statSync, mkdtempSync, rmSync, appendFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { stateDir } from './state.mjs';
 
 export const DEFAULT_URL = 'http://127.0.0.1:50021';
 
 const platform = process.platform;
+
+// Record why a synthesis fell back to the OS voice, so intermittent fallbacks
+// are diagnosable instead of silent. Best-effort.
+const logFail = (reason) => {
+  try {
+    appendFileSync(join(stateDir(), 'voicevox.log'), `${new Date().toISOString()} ${reason}\n`);
+  } catch {
+    /* ignore */
+  }
+};
 
 export const isAvailable = (url = DEFAULT_URL, timeoutMs = 1500) => {
   try {
@@ -56,7 +67,7 @@ const playWav = (wav) => {
 };
 
 // Synthesize and play. Returns true if it spoke, false to fall back to `say`.
-export const speak = (text, speaker = 3, url = DEFAULT_URL, timeoutMs = 8000) => {
+export const speak = (text, speaker = 3, url = DEFAULT_URL, timeoutMs = 15000) => {
   if (!text) return false;
   let dir;
   try {
@@ -70,10 +81,14 @@ export const speak = (text, speaker = 3, url = DEFAULT_URL, timeoutMs = 8000) =>
       `curl -s -m ${sec} -X POST -H "Content-Type: application/json" -d @- ` +
       `"${url}/synthesis?speaker=${speaker}" -o "${wav}"`;
     execSync(cmd, { timeout: timeoutMs + 1000, stdio: 'ignore' });
-    if (!existsSync(wav) || statSync(wav).size === 0) return false;
+    if (!existsSync(wav) || statSync(wav).size < 1000) {
+      logFail(`empty/short wav (speaker ${speaker}, ${text.length} chars)`);
+      return false;
+    }
     playWav(wav);
     return true;
-  } catch {
+  } catch (e) {
+    logFail(`error (speaker ${speaker}): ${(e && e.message) || e}`);
     return false;
   } finally {
     if (dir) {
