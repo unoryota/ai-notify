@@ -138,7 +138,9 @@ export const emit = ({ provider = 'default', event = 'done', label = '', message
   if (!message) spokenBody = fromTemplate || fallback;
   else if (config.speakAgentMessage) spokenBody = fullBody;
   else spokenBody = shortenForSpeech(fullBody, config.speakMaxChars || 40);
-  const speakText = config.speakLabel !== false && label ? `${label}、${spokenBody}` : spokenBody;
+  // The task gist already tells you which pane; the label (often the working
+  // dir) is just slow filler. Prefix it only if explicitly enabled.
+  const speakText = config.speakLabel === true && label ? `${label}、${spokenBody}` : spokenBody;
 
   // Voice precedence (most specific first):
   //   $AI_NOTIFY_VOICE  — set per terminal window/pane to give each its own voice

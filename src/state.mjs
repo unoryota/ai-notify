@@ -55,9 +55,11 @@ export const DEFAULT_CONFIG = {
   bannerWhenMuted: true,
   // Spoken read-out of which terminal finished (helps tell tabs apart).
   speak: true,
-  // Prefix the window label to the spoken message so you can tell which of many
-  // terminals is asking (set a short per-window name with $AI_NOTIFY_LABEL).
-  speakLabel: true,
+  // Prefix the window label to the SPOKEN read-out. Off by default — the task
+  // gist already identifies the pane, and the label (often the working dir) just
+  // adds slow filler. Turn on if you set a short $AI_NOTIFY_LABEL per window.
+  // (The desktop banner is always titled with the label regardless.)
+  speakLabel: false,
   // Visually highlight the waiting terminal window/pane (best-effort, by tty).
   // Off by default; the color is yellow / orange / red / green / #RRGGBB.
   highlightWaiting: false,
