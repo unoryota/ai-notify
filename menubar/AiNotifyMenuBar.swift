@@ -142,6 +142,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let slider = NSSlider(value: value, minValue: 0, maxValue: 2, target: self, action: action)
         slider.frame = NSRect(x: 36, y: 3, width: 170, height: 20)
         slider.isContinuous = (identifier == nil)
+        slider.trackFillColor = .controlAccentColor // stay blue even when not focused
         if let id = identifier { slider.identifier = NSUserInterfaceItemIdentifier(id) }
         row.addSubview(icon); row.addSubview(slider)
         let item = NSMenuItem(); item.view = row
