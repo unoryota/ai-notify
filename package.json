@@ -10,12 +10,18 @@
   "files": [
     "src",
     "recipes",
+    "menubar/AiNotifyMenuBar.swift",
+    "menubar/build.sh",
+    "menubar/README.md",
+    "menubar/dist",
     "README.md",
     "LICENSE"
   ],
   "scripts": {
     "test": "node --test",
-    "scrub": "node scripts/scrub.mjs"
+    "scrub": "node scripts/scrub.mjs",
+    "build:menubar": "bash menubar/build.sh",
+    "prepack": "bash menubar/build.sh 2>/dev/null || true"
   },
   "keywords": [
     "claude-code",

@@ -6,3 +6,6 @@ node_modules/
 # local user config / state should never be committed
 config.json
 *.local
+
+# built menu bar app (prebuilt+signed only at release time)
+menubar/dist/

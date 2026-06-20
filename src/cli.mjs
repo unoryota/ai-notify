@@ -7,6 +7,7 @@ import { providers, byId } from './providers/index.mjs';
 import { emit } from './notify.mjs';
 import { deriveLabel, cliInvocation, isEphemeralInstall } from './util.mjs';
 import { curatedVoices, resolveVoice, previewVoice } from './voices.mjs';
+import * as menubar from './menubar.mjs';
 import { isMuted, setMuted, toggleMuted, readConfig, writeConfig, paths, DEFAULT_CONFIG } from './state.mjs';
 
 const VERSION = '0.1.0';
@@ -177,6 +178,37 @@ const cmds = {
     log('  Reset:    ai-notify voice default');
   },
 
+  // Native menu bar bell (macOS). Self-contained — no Hammerspoon/SwiftBar.
+  menubar() {
+    const sub = positionals[0] || 'status';
+    if (!menubar.isMac()) return log('The menu bar agent is macOS-only.');
+
+    if (sub === 'install') {
+      log('Installing the ai-notify menu bar agent…');
+      if (!menubar.isBuilt()) log('  building the app (system Swift)…');
+      const r = menubar.install();
+      log(`  ✓ app:   ${r.app}`);
+      log(`  ✓ agent: ${r.plist} (starts at login)`);
+      log('A 🔔 should now be in your menu bar. Left-click toggles, right-click for a menu.');
+      return;
+    }
+    if (sub === 'uninstall') {
+      menubar.uninstall();
+      log('✓ Removed the menu bar agent (LaunchAgent unloaded, app stopped).');
+      return;
+    }
+    if (sub === 'build') {
+      log(`✓ built: ${menubar.build()}`);
+      return;
+    }
+    // status
+    log(`menu bar agent:`);
+    log(`  built:     ${menubar.isBuilt() ? '✓' : '— (run: ai-notify menubar build)'}`);
+    log(`  installed: ${menubar.isInstalled() ? '✓ (auto-start at login)' : '—'}`);
+    log(`  running:   ${menubar.isRunning() ? '✓' : '—'}`);
+    if (!menubar.isInstalled()) log('\nEnable it:  ai-notify menubar install');
+  },
+
   hook() {
     const source = opt('source', 'default');
     let event = opt('event', 'done');
@@ -218,6 +250,7 @@ Usage:
   ai-notify uninstall [--only ...]                   remove wiring
   ai-notify toggle | on | off | status               control the mute switch
   ai-notify voice [number|name|preview|default]      pick the spoken voice
+  ai-notify menubar [install|uninstall|status]       native menu bar bell (macOS)
   ai-notify doctor                                    check deps & wiring
   ai-notify config [init]                             print (or write) config
 
