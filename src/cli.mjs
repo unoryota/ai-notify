@@ -79,6 +79,12 @@ const cmds = {
     if (!muted) emitConfirm();
   },
   status() {
+    // Compact forms for embedding in menu bars, prompts, tmux, and the
+    // Claude Code statusline — where you can't type a command but want the
+    // state always visible.
+    if (opt('icon')) return log(isMuted() ? '🔕' : '🔔');
+    if (opt('plain')) return log(isMuted() ? 'muted' : 'on');
+
     log(`notifications: ${isMuted() ? '🔕 OFF (muted)' : '🔔 ON'}`);
     log(`flag:   ${paths.muteFlagPath()}`);
     log(`config: ${paths.configPath()}\n`);

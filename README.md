@@ -37,13 +37,27 @@ ai-notify config [init]                            # print / write config
 
 > After `init`, restart any already-running Codex session so it re-reads its config.
 
-## One tap to mute everything
+## Mute everything — without touching a busy terminal
 
-Bind a hotkey or button to `ai-notify toggle`. Ready-made recipes in [`recipes/`](recipes/):
+You can't type a command into the terminal that's running an agent, and you want
+the current state visible at a glance. So don't drive this from a prompt — drive
+it from the **menu bar / a hotkey**, and show the state where you can always see it.
 
-- **macOS Shortcuts** — run `ai-notify toggle`, then pin it to the menu bar or assign a global hotkey (also fires from iPhone / Apple Watch). See [recipes/macos-shortcut](recipes/macos-shortcut/).
-- **Raycast** — drop-in script command: [recipes/raycast](recipes/raycast/).
-- **Stream Deck / shell alias** — same one-liner.
+> Toggling works mid-run: the flag is read the next time an agent fires a
+> notification, so flipping it instantly affects every running agent. A hotkey
+> runs in its own process — it never types into your busy terminal.
+
+**Recommended — always-visible menu bar toggle** (pick one):
+
+- **Hammerspoon** — menu bar icon **and** a global hotkey (⌃⌥M) in ~20 lines. [recipes/hammerspoon](recipes/hammerspoon/).
+- **SwiftBar / xbar** — a 🔔/🔕 menu bar item you click to toggle. [recipes/swiftbar](recipes/swiftbar/).
+- **macOS Shortcuts** — `ai-notify toggle` pinned to the menu bar / a hotkey / iPhone. [recipes/macos-shortcut](recipes/macos-shortcut/).
+- **Raycast** — drop-in script command + hotkey. [recipes/raycast](recipes/raycast/).
+
+**Always-visible state** — `ai-notify status --icon` prints just `🔔`/`🔕`, ready to embed:
+
+- **Inside Claude Code's own status line** (the busy terminal shows its own state). [recipes/claude-statusline](recipes/claude-statusline/).
+- **tmux status bar / shell prompt / Starship.** [recipes/tmux](recipes/tmux/).
 
 ## How it works
 
