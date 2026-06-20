@@ -38,10 +38,11 @@ Adding another agent (aider, opencode, amp, …) is a small PR: drop a file in `
 ```sh
 ai-notify init [--dry-run] [--only claude,codex]   # wire detected agents
 ai-notify toggle | on | off | status               # the mute switch
+ai-notify volume [0.0-2.0]                          # get/set output volume
 ai-notify voice [number|name|preview|default]      # pick the spoken voice
 ai-notify voicevox [on <id>|off|speakers|test]     # speak in VOICEVOX voices
 ai-notify translate [on <lang>|off|test]           # speak agent text in your language
-ai-notify menubar [install|uninstall|status]       # native menu bar bell (macOS)
+ai-notify menubar [install|uninstall|status]       # native menu bar app (macOS)
 ai-notify doctor                                   # check deps & wiring
 ai-notify uninstall                                # cleanly remove wiring
 ```
@@ -52,15 +53,21 @@ Per-window overrides — `export` these in a terminal *before* launching the age
 AI_NOTIFY_LABEL=api               # name this window in the read-out / notification
 AI_NOTIFY_VOICE=Eddy              # this window's `say` voice
 AI_NOTIFY_VOICEVOX_SPEAKER=3      # this window's VOICEVOX speaker id
+AI_NOTIFY_VOLUME=0.5              # this window's volume (0.0–2.0)
 ```
 
-## 🔔 One mute switch — visible and one tap away
+## 🎛️ Native menu bar app — mute, volume, and voices
 
-You can't type into the terminal that's running an agent, so drive the switch from the **menu bar / a hotkey**:
+You can't type into the terminal that's running an agent, so drive everything from the **menu bar**:
 
 ```sh
-ai-notify menubar install   # native menu bar 🔔/🔕 — click to toggle, starts at login
+ai-notify menubar install   # native menu bar app, starts at login
 ```
+
+A monochrome waveform icon shows status by color (Adobe-style): plain when idle, a **yellow** dot when an agent is waiting for you, **red + slash** when muted.
+
+- **Left-click** → menu: a **volume slider**, the **voice list** (system + VOICEVOX), and **per-pane** controls — each open terminal gets its own voice *and* volume.
+- **Right-click** → instant mute toggle.
 
 No third-party app needed. Prefer something else? There are drop-in recipes for **Hammerspoon**, **SwiftBar/xbar**, **Raycast**, and the built-in **macOS Shortcuts** in [`recipes/`](recipes/). `ai-notify status --icon` prints just `🔔`/`🔕` to embed in tmux / your prompt / Claude Code's status line.
 
