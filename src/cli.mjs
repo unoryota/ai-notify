@@ -13,7 +13,7 @@ import { diagnose as highlightDiagnose, clearHighlight } from './highlight.mjs';
 import * as voicevox from './voicevox.mjs';
 import { isMuted, setMuted, toggleMuted, readConfig, writeConfig, paths, DEFAULT_CONFIG } from './state.mjs';
 
-const VERSION = '0.1.1';
+const VERSION = '0.1.2';
 
 const args = process.argv.slice(2);
 const cmd = args[0];
