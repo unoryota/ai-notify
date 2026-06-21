@@ -41,6 +41,7 @@ ai-notify toggle | on | off | status               # the mute switch
 ai-notify volume [0.0-2.0]                          # get/set output volume
 ai-notify voice [number|name|preview|default]      # pick the spoken voice
 ai-notify voicevox [on <id>|off|speakers|test]     # speak in VOICEVOX voices
+ai-notify tsundere [on|off|level <0-1>|test]       # tsundere persona (ツン⇄デレ by urgency)
 ai-notify translate [on <lang>|off|test]           # speak agent text in your language
 ai-notify menubar [install|uninstall|status]       # native menu bar app (macOS)
 ai-notify doctor                                   # check deps & wiring
@@ -53,6 +54,7 @@ Per-window overrides — `export` these in a terminal *before* launching the age
 AI_NOTIFY_LABEL=api               # name this window in the read-out / notification
 AI_NOTIFY_VOICE=Eddy              # this window's `say` voice
 AI_NOTIFY_VOICEVOX_SPEAKER=3      # this window's VOICEVOX speaker id
+AI_NOTIFY_TSUNDERE_LEVEL=0.8      # this window's tsundere baseline (0=デレ … 1=ツン)
 AI_NOTIFY_VOLUME=0.5              # this window's volume (0.0–2.0)
 ```
 
@@ -66,7 +68,7 @@ ai-notify menubar install   # native menu bar app, starts at login
 
 A monochrome waveform icon shows status by color (Adobe-style): plain when idle, a **yellow** dot when an agent is waiting for you, **red + slash** when muted.
 
-- **Left-click** → menu: a **volume slider**, the **voice list** (system + VOICEVOX), and **per-pane** controls — each open terminal gets its own voice *and* volume.
+- **Left-click** → menu: a **volume slider**, a **tsundere** toggle + デレ⇄ツン slider, the **voice list** (system + VOICEVOX), and **per-pane** controls — each open terminal gets its own voice *and* volume.
 - **Right-click** → instant mute toggle.
 
 No third-party app needed. Prefer something else? There are drop-in recipes for **Hammerspoon**, **SwiftBar/xbar**, **Raycast**, and the built-in **macOS Shortcuts** in [`recipes/`](recipes/). `ai-notify status --icon` prints just `🔔`/`🔕` to embed in tmux / your prompt / Claude Code's status line.
@@ -98,6 +100,21 @@ ai-notify translate test "I fixed the auth bug and added 3 tests."
 ```
 
 Key-less and no cost (one HTTP request; falls back to a localized template offline). The desktop banner still shows the original text.
+
+## 💢 Tsundere mode (optional, fun)
+
+Give the spoken read-out a tsundere persona whose tone tracks **how urgent the event is**:
+
+- a **failure / dangerous approval** → a louder, sharp **ツン** scolding ("Hey! The build failed — don't just sit there, fix it!")
+- a **clean pass / no issues** → a warm **デレ** "good job" ("...heh, not bad. N-not that I'm impressed or anything.")
+
+```sh
+ai-notify tsundere on            # off by default
+ai-notify tsundere level 0.6     # baseline 0 (デレ) … 1 (ツン); the menu bar has a slider
+ai-notify tsundere test          # hear T3/T2/T1/T0 samples
+```
+
+It's **deterministic and offline** — phrase banks, no API, no cost. The urgency is a keyword heuristic over the agent's text (so it's best-effort, not a real severity signal), and the desktop banner stays factual. With **VOICEVOX** the level also picks the character's own **ツンツン / あまあま** style, so the same character actually *sounds* harsher or sweeter. `lang` supports `ja` and `en`.
 
 ## ⏳ Which window, and what it's asking
 

@@ -8,11 +8,21 @@ import { spawn, execFileSync } from 'node:child_process';
 import { existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { isMuted, readConfig, readVolume, recordPane, readPaneSetting, setPaneWaiting } from './state.mjs';
+import {
+  isMuted,
+  readConfig,
+  readVolume,
+  recordPane,
+  readPaneSetting,
+  setPaneWaiting,
+  readTsundereLevel,
+  nextCounter,
+} from './state.mjs';
 import { controllingTty } from './util.mjs';
 import { translate } from './translate.mjs';
 import { highlightWaiting, clearHighlight } from './highlight.mjs';
 import * as voicevox from './voicevox.mjs';
+import * as tsundere from './tsundere.mjs';
 
 const platform = process.platform; // 'darwin' | 'linux' | 'win32'
 
@@ -187,14 +197,42 @@ export const emit = ({ provider = 'default', event = 'done', label = '', message
           ? config.volume
           : 1;
 
+  // Tsundere mode: skin the spoken text, scale volume, and (with VOICEVOX) pick
+  // the character's ツンツン/あまあま style — all driven by the event's urgency.
+  // The banner is left untouched (it stays factual). Off => identical to before.
+  let outText = speakText;
+  let outVol = vol;
+  let outSpeaker = speaker;
+  const ts = config.tsundere;
+  if (ts && ts.enabled) {
+    const tier = tsundere.classifyUrgency(event, message, fullBody);
+    const envLevel = parseFloat(process.env.AI_NOTIFY_TSUNDERE_LEVEL);
+    const baseLevel = Number.isFinite(envLevel)
+      ? Math.min(1, Math.max(0, envLevel))
+      : readTsundereLevel() != null
+        ? readTsundereLevel()
+        : typeof ts.level === 'number'
+          ? ts.level
+          : 0.5;
+    const eff = tsundere.effectiveLevel(baseLevel, tier, ts.urgencyShift !== false);
+    outVol = Math.min(2, Math.max(0, vol * tsundere.volumeMul(tier, ts.volumeBoost !== false)));
+    outText = tsundere.wrap(spokenBody, eff, tier, ts.lang || 'ja', nextCounter('tsundere'));
+    if (config.speakLabel === true && label) outText = `${label}、${outText}`;
+    if (tts === 'voicevox') {
+      const sm = ts.styleMap || voicevox.resolveStyles(outSpeaker, config.voicevox?.url);
+      const axis = tsundere.axisFor(eff);
+      if (sm && sm[axis] != null) outSpeaker = sm[axis];
+    }
+  }
+
   if (!muted) {
-    playSound(soundName, vol);
-    if (config.speak && vol > 0) {
+    playSound(soundName, outVol);
+    if (config.speak && outVol > 0) {
       let spoken = false;
       if (tts === 'voicevox') {
-        spoken = voicevox.speak(speakText, speaker, config.voicevox?.url, vol);
+        spoken = voicevox.speak(outText, outSpeaker, config.voicevox?.url, outVol);
       }
-      if (!spoken) speak(speakText, voice, vol); // OS `say` (also the VOICEVOX fallback)
+      if (!spoken) speak(outText, voice, outVol); // OS `say` (also the VOICEVOX fallback)
     }
   }
 

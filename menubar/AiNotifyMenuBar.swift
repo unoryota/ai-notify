@@ -46,6 +46,12 @@ enum State {
         try? String(format: "%.2f", v).write(toFile: file("volume"), atomically: true, encoding: .utf8)
     }
 
+    // Tsundere baseline level 0.0 (デレ) – 1.0 (ツン). Same file the CLI reads.
+    static func setTsundereLevel(_ v: Double) {
+        try? FileManager.default.createDirectory(atPath: dir(), withIntermediateDirectories: true)
+        try? String(format: "%.2f", v).write(toFile: file("tsundere-level"), atomically: true, encoding: .utf8)
+    }
+
     @discardableResult
     static func cli(_ args: [String], capture: Bool = false) -> String? {
         let launcher = file("cli")
@@ -130,6 +136,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func quit() { NSApp.terminate(nil) }
 
     @objc private func volumeChanged(_ s: NSSlider) { State.setVolume(s.doubleValue) }
+    @objc private func tsundereLevelChanged(_ s: NSSlider) { State.setTsundereLevel(s.doubleValue) }
     @objc private func paneVolumeChanged(_ s: NSSlider) {
         if let tty = s.identifier?.rawValue { State.cli(["volume-pane", tty, String(format: "%.2f", s.doubleValue)]) }
     }
@@ -149,6 +156,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return item
     }
 
+    // A デレ ⇄ ツン slider (0–1) for the tsundere baseline level. Continuous; writes
+    // the level file directly (like the global volume slider).
+    private func tsundereRow(value: Double) -> NSMenuItem {
+        let row = NSView(frame: NSRect(x: 0, y: 0, width: 220, height: 26))
+        let left = NSTextField(labelWithString: "デレ")
+        left.frame = NSRect(x: 12, y: 5, width: 30, height: 16)
+        left.font = .systemFont(ofSize: 10); left.textColor = .secondaryLabelColor
+        let slider = NSSlider(value: value, minValue: 0, maxValue: 1, target: self, action: #selector(tsundereLevelChanged(_:)))
+        slider.frame = NSRect(x: 46, y: 3, width: 128, height: 20)
+        slider.isContinuous = true
+        slider.trackFillColor = .systemPink
+        let right = NSTextField(labelWithString: "ツン")
+        right.frame = NSRect(x: 178, y: 5, width: 30, height: 16)
+        right.font = .systemFont(ofSize: 10); right.textColor = .secondaryLabelColor
+        row.addSubview(left); row.addSubview(slider); row.addSubview(right)
+        let item = NSMenuItem(); item.view = row
+        return item
+    }
+
     // representedObject is the full CLI arg array to run.
     @objc private func runItem(_ item: NSMenuItem) {
         if let cmd = item.representedObject as? [String] { State.cli(cmd) }
@@ -163,15 +189,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func showMenu() {
         let menu = NSMenu()
 
-        // Global volume slider.
-        menu.addItem(sliderRow(value: State.volume, action: #selector(volumeChanged(_:)), identifier: nil))
-        menu.addItem(.separator())
-
         // Parse menu-json once.
         let json = (State.cli(["menu-json"], capture: true)?.data(using: .utf8))
             .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
         let voices = (json?["voices"] as? [[String: Any]]) ?? []
         let panes = (json?["panes"] as? [[String: Any]]) ?? []
+
+        // Global volume slider.
+        menu.addItem(sliderRow(value: State.volume, action: #selector(volumeChanged(_:)), identifier: nil))
+
+        // Tsundere mode: toggle + デレ⇄ツン baseline slider (shown when on).
+        let tsun = json?["tsundere"] as? [String: Any]
+        let tsunOn = (tsun?["enabled"] as? Bool) ?? false
+        let tsunLevel = (tsun?["level"] as? Double) ?? 0.5
+        let tsunItem = NSMenuItem(title: "ツンデレモード", action: #selector(runItem(_:)), keyEquivalent: "")
+        tsunItem.target = self
+        tsunItem.representedObject = ["tsundere", "toggle"]
+        tsunItem.state = tsunOn ? .on : .off
+        menu.addItem(tsunItem)
+        if tsunOn { menu.addItem(tsundereRow(value: tsunLevel)) }
+        menu.addItem(.separator())
 
         if voices.isEmpty {
             menu.addItem(disabledHeader("(声の一覧を取得できません)"))

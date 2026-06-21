@@ -115,6 +115,34 @@ export const listCharacters = (url = DEFAULT_URL) => {
   }
 };
 
+// For tsundere mode: given a speaker id, find the character that owns it and map
+// its styles to { normal, tsun, dere } speaker ids (so the SAME character can
+// speak in a ツンツン or あまあま voice). Missing styles fall back to normal.
+export const resolveStyles = (speakerId, url = DEFAULT_URL) => {
+  try {
+    const out = execFileSync('curl', ['-s', '-m', '4', `${url}/speakers`], { encoding: 'utf8', timeout: 5000 });
+    const data = JSON.parse(out);
+    const sid = Number(speakerId);
+    for (const sp of data) {
+      const styles = sp.styles || [];
+      if (!styles.some((s) => Number(s.id) === sid)) continue;
+      const find = (re) => {
+        const m = styles.find((s) => re.test(s.name || ''));
+        return m ? Number(m.id) : null;
+      };
+      const normal = find(/ノーマル|普通/) ?? sid;
+      return {
+        normal,
+        tsun: find(/ツンツン|ツン/) ?? normal,
+        dere: find(/あまあま|甘え|デレ|ささやき/) ?? normal,
+      };
+    }
+  } catch {
+    /* engine down / parse error — caller falls back to the base speaker */
+  }
+  return null;
+};
+
 const playWav = (wav, vol = 1) => {
   if (platform === 'darwin') execFileSync('afplay', ['-v', String(vol), wav], { timeout: 30000 });
   else if (platform === 'linux') {

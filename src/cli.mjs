@@ -3,7 +3,7 @@
 // One mute switch for all of them, across every terminal. No daemon.
 
 import { readFileSync } from 'node:fs';
-import { execSync } from 'node:child_process';
+import { execSync, execFileSync } from 'node:child_process';
 import { providers, byId } from './providers/index.mjs';
 import { emit } from './notify.mjs';
 import { deriveLabel, cliInvocation, isEphemeralInstall } from './util.mjs';
@@ -12,6 +12,7 @@ import * as menubar from './menubar.mjs';
 import { translate } from './translate.mjs';
 import { diagnose as highlightDiagnose, clearHighlight } from './highlight.mjs';
 import * as voicevox from './voicevox.mjs';
+import * as tsundere from './tsundere.mjs';
 import {
   isMuted,
   setMuted,
@@ -22,12 +23,14 @@ import {
   DEFAULT_CONFIG,
   readVolume,
   setVolume,
+  readTsundereLevel,
+  setTsundereLevel,
   readPanes,
   readPaneSetting,
   updatePaneSetting,
 } from './state.mjs';
 
-const VERSION = '0.2.2';
+const VERSION = '0.3.0';
 
 const args = process.argv.slice(2);
 const cmd = args[0];
@@ -329,6 +332,90 @@ const cmds = {
     log(`🔊 volume → ${n}`);
   },
 
+  // Tsundere mode: skin the spoken read-out with a tsundere persona that turns
+  // ツン (harsh + louder) on failures and デレ (warm) on clean passes. Offline,
+  // deterministic, no cost.
+  //   tsundere on|off|toggle | level <0-1> | test [t3|t2|t1|t0] | status
+  tsundere() {
+    const sub = positionals[0] || 'status';
+    const config = readConfig();
+    const ts = config.tsundere;
+    const url = config.voicevox?.url || voicevox.DEFAULT_URL;
+
+    const sayText = (text, voice) => {
+      try {
+        execFileSync('say', voice ? ['-v', voice, text] : [text], { stdio: 'ignore' });
+      } catch {
+        /* non-mac / no say — ignore */
+      }
+    };
+
+    if (sub === 'on' || sub === 'off' || sub === 'toggle') {
+      const enabled = sub === 'toggle' ? !ts.enabled : sub === 'on';
+      config.tsundere = { ...ts, enabled };
+      // With VOICEVOX, resolve & cache the character's ツンツン/あまあま style ids
+      // now, so fire-time skips the lookup.
+      if (enabled && config.tts === 'voicevox') {
+        const sm = voicevox.resolveStyles(config.voicevox?.speaker, url);
+        if (sm) config.tsundere.styleMap = sm;
+      }
+      writeConfig(config);
+      log(enabled ? '💢 ツンデレ ON（デレ⇄ツン・緊急度で口調が変化）' : 'ツンデレ OFF');
+      if (enabled) {
+        log('  既定の強さ:  ai-notify tsundere level <0=デレ 〜 1=ツン>');
+        log('  試聴:        ai-notify tsundere test');
+      }
+      return;
+    }
+    if (sub === 'level') {
+      const arg = positionals[1];
+      if (arg === undefined) {
+        const v = readTsundereLevel();
+        return log(`tsundere level: ${v != null ? v : ts.level}  (0=デレ 〜 1=ツン)`);
+      }
+      const n = setTsundereLevel(arg);
+      return log(`💢 tsundere level → ${n}  (0=デレ 〜 1=ツン)`);
+    }
+    if (sub === 'test') {
+      const which = (positionals[1] || '').toLowerCase();
+      const lang = ts.lang || 'ja';
+      const level = readTsundereLevel() != null ? readTsundereLevel() : ts.level;
+      const ja = lang === 'ja';
+      const samples = {
+        t3: { event: 'done', raw: 'Build failed: TypeError in auth.ts', body: ja ? 'ビルドが失敗' : 'the build failed' },
+        t2: { event: 'waiting', raw: 'Claude needs your permission to run a command', body: ja ? '許可待ち' : 'waiting for your input' },
+        t1: { event: 'done', raw: 'Updated three files', body: ja ? '3ファイルを更新' : 'updated three files' },
+        t0: { event: 'done', raw: 'All tests passed, no issues', body: ja ? 'テスト全部パス' : 'all tests passed' },
+      };
+      const keys = samples[which] ? [which] : ['t3', 't2', 't1', 't0'];
+      const sm = config.tts === 'voicevox' ? ts.styleMap || voicevox.resolveStyles(config.voicevox?.speaker, url) : null;
+      log(`tsundere test (level ${level}, lang ${lang}):\n`);
+      for (const k of keys) {
+        const s = samples[k];
+        const tier = tsundere.classifyUrgency(s.event, s.raw, s.body);
+        const eff = tsundere.effectiveLevel(level, tier, ts.urgencyShift !== false);
+        const text = tsundere.wrap(s.body, eff, tier, lang, 0);
+        const mul = tsundere.volumeMul(tier, ts.volumeBoost !== false);
+        log(`  [${tier} ×${mul} ${tsundere.axisFor(eff)}] ${text}`);
+        if (sm) {
+          const speaker = sm[tsundere.axisFor(eff)] ?? config.voicevox?.speaker;
+          voicevox.speak(text, speaker, url, mul);
+        } else {
+          sayText(text, config.voice || '');
+        }
+      }
+      return;
+    }
+    // status
+    const lvl = readTsundereLevel() != null ? readTsundereLevel() : ts.level;
+    log(`tsundere: ${ts.enabled ? '💢 ON' : 'OFF'}`);
+    log(`  level:        ${lvl}  (0=デレ 〜 1=ツン)`);
+    log(`  urgencyShift: ${ts.urgencyShift !== false ? 'on' : 'off'}  (緊急度で口調を増減)`);
+    log(`  volumeBoost:  ${ts.volumeBoost !== false ? 'on' : 'off'}  (重大時は音量↑)`);
+    log(`  lang:         ${ts.lang || 'ja'}`);
+    if (!ts.enabled) log('\nEnable:  ai-notify tsundere on    試聴:  ai-notify tsundere test');
+  },
+
   // Assign a voice to a specific pane (by tty), from the menu bar.
   //   voice-pane <tty> voicevox <id> | say <name> | clear
   'voice-pane'() {
@@ -410,12 +497,14 @@ const cmds = {
         volumeSet: typeof s.volume === 'number',
       };
     });
+    const tsLevel = readTsundereLevel() != null ? readTsundereLevel() : config.tsundere?.level ?? 0.5;
     log(
       JSON.stringify({
         muted: isMuted(),
         volume: readVolume() != null ? readVolume() : typeof config.volume === 'number' ? config.volume : 1,
         voices,
         panes,
+        tsundere: { enabled: !!config.tsundere?.enabled, level: tsLevel },
       })
     );
   },
@@ -552,6 +641,7 @@ Usage:
   ai-notify volume [0.0-2.0]                          get/set output volume
   ai-notify voice [number|name|preview|default]      pick the spoken voice
   ai-notify voicevox [setup|on <id>|off|speakers|test]  speak in VOICEVOX character voices
+  ai-notify tsundere [on|off|level <0-1>|test|status]   tsundere persona (ツン⇄デレ by urgency)
   ai-notify menubar [install|uninstall|status]       native menu bar bell (macOS)
   ai-notify translate [on <lang>|off|test]           speak agent text in your language
   ai-notify doctor                                    check deps & wiring

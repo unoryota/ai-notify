@@ -67,6 +67,49 @@ export const setVolume = (v) => {
   return n;
 };
 
+// --- Tsundere level --------------------------------------------------------
+// A single number 0.0 (full デレ) – 1.0 (full ツン) in a state file, written by
+// the menu bar slider or `ai-notify tsundere level`, read at fire time. Overrides
+// config.tsundere.level; $AI_NOTIFY_TSUNDERE_LEVEL overrides per window.
+
+const tsundereLevelPath = () => join(stateDir(), 'tsundere-level');
+
+export const readTsundereLevel = () => {
+  try {
+    const v = parseFloat(readFileSync(tsundereLevelPath(), 'utf8'));
+    return Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : null;
+  } catch {
+    return null;
+  }
+};
+
+export const setTsundereLevel = (v) => {
+  const n = Math.min(1, Math.max(0, Number(v)));
+  ensureDir(stateDir());
+  writeFileSync(tsundereLevelPath(), String(n));
+  return n;
+};
+
+// A small persisted counter (per name), so phrase rotation varies across fires
+// even for identical input. Wraps to stay small; best-effort.
+export const nextCounter = (name) => {
+  const p = join(stateDir(), `ctr-${name}`);
+  let n = 0;
+  try {
+    n = parseInt(readFileSync(p, 'utf8'), 10) || 0;
+  } catch {
+    /* first use */
+  }
+  n = (n + 1) % 1000000;
+  try {
+    ensureDir(stateDir());
+    writeFileSync(p, String(n));
+  } catch {
+    /* ignore */
+  }
+  return n;
+};
+
 // --- Per-pane state --------------------------------------------------------
 // Recently-active terminal panes (so the menu bar can offer per-pane voices),
 // and a per-tty voice override. Both are small JSON files in the state dir.
@@ -176,6 +219,21 @@ export const DEFAULT_CONFIG = {
   // Per window: $AI_NOTIFY_VOICEVOX_SPEAKER overrides the speaker id.
   tts: 'say',
   voicevox: { url: 'http://127.0.0.1:50021', speaker: 3 },
+  // Tsundere mode: skin the SPOKEN read-out with a tsundere persona whose
+  // harshness (ツン) ⇄ sweetness (デレ) tracks the event's urgency — high-urgency
+  // failures get a louder ツン scolding, clean passes get a デレ "good job".
+  // Off by default. `level` is the baseline 0 (デレ) – 1 (ツン); the menu bar
+  // slider / `ai-notify tsundere level` write a state file that overrides it.
+  // With VOICEVOX, the level also picks the character's ツンツン/あまあま style
+  // (cached in `styleMap`). No API, no cost — deterministic phrase banks.
+  tsundere: {
+    enabled: false,
+    level: 0.5,
+    urgencyShift: true, // modulate the level by the event's urgency
+    volumeBoost: true, // louder on high-urgency events
+    lang: 'ja', // phrase bank language (ja | en)
+    styleMap: null, // { normal, tsun, dere } VOICEVOX style ids; auto-resolved
+  },
   // Spoken read-out templates for agent events. The window label is added
   // separately (speakLabel), so leave {label} out here to avoid doubling it.
   // Override per language (e.g. Japanese) in config.json. An agent that supplies
@@ -193,7 +251,12 @@ export const DEFAULT_CONFIG = {
 export const readConfig = () => {
   try {
     const raw = JSON.parse(readFileSync(configPath(), 'utf8'));
-    return { ...DEFAULT_CONFIG, ...raw, providers: { ...DEFAULT_CONFIG.providers, ...(raw.providers || {}) } };
+    return {
+      ...DEFAULT_CONFIG,
+      ...raw,
+      providers: { ...DEFAULT_CONFIG.providers, ...(raw.providers || {}) },
+      tsundere: { ...DEFAULT_CONFIG.tsundere, ...(raw.tsundere || {}) },
+    };
   } catch {
     return DEFAULT_CONFIG;
   }
