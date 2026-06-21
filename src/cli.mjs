@@ -34,7 +34,9 @@ import {
   updatePaneSetting,
 } from './state.mjs';
 
-const VERSION = '0.3.0';
+// Single source of truth: read the version from package.json so `--version`
+// (and the Homebrew formula test that checks it) always matches the release.
+const VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
 
 const args = process.argv.slice(2);
 const cmd = args[0];
