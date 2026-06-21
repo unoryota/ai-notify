@@ -451,6 +451,74 @@ const cmds = {
     if (!ts.enabled) log('\nEnable:  ai-notify tsundere on    試聴:  ai-notify tsundere test');
   },
 
+  // Named presets: snapshot the current volume / prosody / tsundere / war and
+  // restore them later, so you don't re-tune every time.
+  //   preset [list | save <name> | load <name> | delete <name>]
+  preset() {
+    const sub = positionals[0] || 'list';
+    const file = pathJoin(paths.stateDir(), 'presets.json');
+    const read = () => {
+      try {
+        return JSON.parse(readFileSync(file, 'utf8'));
+      } catch {
+        return {};
+      }
+    };
+    const write = (o) => {
+      mkdirSync(paths.stateDir(), { recursive: true });
+      writeFileSync(file, JSON.stringify(o, null, 2));
+    };
+    const name = positionals.slice(1).join(' ').trim();
+
+    if (sub === 'list') {
+      const names = Object.keys(read());
+      return log(names.length ? names.join('\n') : '(no presets)');
+    }
+    if (sub === 'save') {
+      if (!name) return void (console.error('usage: preset save <name>'), process.exit(1));
+      const config = readConfig();
+      const snap = {
+        volume: readVolume() != null ? readVolume() : config.volume ?? 1,
+        prosody: readVoiceProsody(),
+        tsundere: {
+          enabled: !!config.tsundere?.enabled,
+          level: readTsundereLevel() != null ? readTsundereLevel() : config.tsundere?.level ?? 0.5,
+        },
+        war: { enabled: isWarEnabled(), level: readWarLevel() },
+      };
+      const p = read();
+      p[name] = snap;
+      write(p);
+      return log(`💾 saved preset "${name}"`);
+    }
+    if (sub === 'delete' || sub === 'rm') {
+      const p = read();
+      if (!(name in p)) return void (console.error(`no preset: ${name}`), process.exit(1));
+      delete p[name];
+      write(p);
+      return log(`deleted "${name}"`);
+    }
+    if (sub === 'load' || sub === 'apply') {
+      const s = read()[name];
+      if (!s) return void (console.error(`no preset: ${name}`), process.exit(1));
+      if (typeof s.volume === 'number') setVolume(s.volume);
+      if (s.prosody) for (const k of ['speed', 'pitch', 'intonation']) if (typeof s.prosody[k] === 'number') setVoiceProsody(k, s.prosody[k]);
+      if (s.tsundere) {
+        if (typeof s.tsundere.level === 'number') setTsundereLevel(s.tsundere.level);
+        const config = readConfig();
+        config.tsundere = { ...(config.tsundere || {}), enabled: !!s.tsundere.enabled };
+        writeConfig(config);
+      }
+      if (s.war) {
+        setWarEnabled(!!s.war.enabled);
+        if (typeof s.war.level === 'number') setWarLevel(s.war.level);
+      }
+      return log(`▶ loaded preset "${name}"`);
+    }
+    console.error('usage: preset [list | save <name> | load <name> | delete <name>]');
+    process.exit(1);
+  },
+
   // War mode: a military-ops-room read-out skin. Level: min 平時 / mid 戦闘中 /
   // max 危機的. Combined with the tsundere level for the operator's 好感度.
   //   war [on|off|toggle|level <0-1>|test|status]
@@ -1033,6 +1101,7 @@ Usage:
   ai-notify voicevox [setup|on <id>|off|speakers|test]  speak in VOICEVOX character voices
   ai-notify tsundere [on|off|level <0-1>|test|status]   tsundere persona (ツン⇄デレ by urgency)
   ai-notify war [on|off|level <0-1>|test|status]        war mode (平時⇄戦闘⇄危機; tsundere level = 好感度)
+  ai-notify preset [list|save <name>|load <name>|delete <name>]   save/restore volume+tsundere+war+prosody
   ai-notify voice-prosody [speed|pitch|intonation <v>|reset]  VOICEVOX read-out tuning
   ai-notify menubar [install|uninstall|status]       native menu bar bell (macOS)
   ai-notify notify [<kind> on|off]                   which events alert: input|permission|info|done|subagent-done

@@ -122,6 +122,7 @@ A monochrome waveform icon shows status by color (Adobe-style): plain when idle,
 
 - **Left-click** → menu: a **volume slider**, a **tsundere** toggle + デレ⇄ツン slider, the **voice list** (system + VOICEVOX), and **per-pane** controls. Each open terminal gets its own **spoken name** (read out so you know *which* pane finished), **voice**, and **volume** — the row shows each pane's voice at a glance.
 - **Right-click** → instant mute toggle.
+- **⚙ 設定…** → a settings window with **aligned sliders + editable numeric fields** (volume, tsundere, war, speed/pitch/intonation) and **saveable presets** (`ai-notify preset save <name>` / `load` / `delete`), so you don't re-tune every time.
 
 <p>
   <img alt="ai-notify menu — volume, tsundere, and voice controls" src="https://raw.githubusercontent.com/unoryota/ai-notify/main/assets/menubar.png" width="250">

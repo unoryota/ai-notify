@@ -275,9 +275,200 @@ final class PopupCard: NSObject {
     }
 }
 
+// One settings row: a label (or checkbox) + a slider + an editable numeric field,
+// kept on a single shared grid so every row lines up. The slider and the field
+// stay in sync; both call `onChange`.
+final class SettingsRow: NSObject {
+    let view = NSView(frame: NSRect(x: 0, y: 0, width: 470, height: 32))
+    private let slider: NSSlider
+    private let field = NSTextField()
+    private let lo: Double
+    private let hi: Double
+    private let onChange: (Double) -> Void
+    private let onToggle: (() -> Void)?
+
+    init(title: String, asCheckbox: Bool, on: Bool, lo: Double, hi: Double, value: Double,
+         fill: NSColor, onToggle: (() -> Void)? = nil, onChange: @escaping (Double) -> Void) {
+        self.lo = lo; self.hi = hi; self.onChange = onChange; self.onToggle = onToggle
+        slider = NSSlider(value: value, minValue: lo, maxValue: hi, target: nil, action: nil)
+        super.init()
+
+        if asCheckbox {
+            let cb = NSButton(checkboxWithTitle: title, target: self, action: #selector(toggled))
+            cb.frame = NSRect(x: 16, y: 6, width: 106, height: 20)
+            cb.state = on ? .on : .off
+            view.addSubview(cb)
+        } else {
+            let lbl = NSTextField(labelWithString: title)
+            lbl.frame = NSRect(x: 16, y: 7, width: 106, height: 18)
+            lbl.textColor = .labelColor
+            view.addSubview(lbl)
+        }
+        // Unified grid: slider always at the same x/width, field always after it.
+        slider.frame = NSRect(x: 128, y: 5, width: 250, height: 20)
+        slider.target = self; slider.action = #selector(sliderMoved)
+        slider.isContinuous = true
+        slider.trackFillColor = fill
+        view.addSubview(slider)
+
+        field.frame = NSRect(x: 392, y: 5, width: 56, height: 20)
+        field.alignment = .right
+        field.target = self; field.action = #selector(fieldEdited)
+        view.addSubview(field)
+        setField(value)
+    }
+
+    private func setField(_ v: Double) { field.stringValue = String(format: "%.2f", v) }
+    @objc private func toggled() { onToggle?() }
+    @objc private func sliderMoved() { setField(slider.doubleValue); onChange(slider.doubleValue) }
+    @objc private func fieldEdited() {
+        var v = Double(field.stringValue) ?? slider.doubleValue
+        v = min(hi, max(lo, v))
+        slider.doubleValue = v; setField(v); onChange(v)
+    }
+}
+
+// The settings window: aligned sliders + editable numeric fields for volume,
+// tsundere, war, and the VOICEVOX prosody, plus a saveable preset bar.
+final class SettingsWindowController: NSObject {
+    private var window: NSWindow?
+    private var presetPopup: NSPopUpButton?
+    var windowNumber: Int { window?.windowNumber ?? 0 }
+
+    func show() {
+        if window == nil { build() }
+        reloadValues()
+        NSApp.activate(ignoringOtherApps: true)
+        window?.center()
+        window?.makeKeyAndOrderFront(nil)
+        window?.orderFrontRegardless()
+    }
+
+    private func menuJSON() -> [String: Any] {
+        (State.cli(["menu-json"], capture: true)?.data(using: .utf8))
+            .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
+    }
+
+    private func build() {
+        let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 470, height: 360),
+                         styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        w.title = "ai-notify 設定"
+        w.isReleasedWhenClosed = false
+        window = w
+        rebuildContent()
+    }
+
+    // Re-create the rows from the current state (also used after loading a preset).
+    private func rebuildContent() {
+        guard let w = window else { return }
+        let j = menuJSON()
+        let content = NSView(frame: NSRect(x: 0, y: 0, width: 470, height: 360))
+
+        // Preset bar.
+        let presetLabel = NSTextField(labelWithString: "プリセット")
+        presetLabel.frame = NSRect(x: 16, y: 322, width: 70, height: 18)
+        content.addSubview(presetLabel)
+        let popup = NSPopUpButton(frame: NSRect(x: 92, y: 318, width: 180, height: 26))
+        for name in presetNames() { popup.addItem(withTitle: name) }
+        if popup.numberOfItems == 0 { popup.addItem(withTitle: "(なし)"); popup.isEnabled = false }
+        content.addSubview(popup)
+        presetPopup = popup
+        let apply = NSButton(title: "適用", target: self, action: #selector(applyPreset)); apply.frame = NSRect(x: 278, y: 318, width: 52, height: 26); apply.bezelStyle = .rounded; content.addSubview(apply)
+        let save = NSButton(title: "保存…", target: self, action: #selector(savePreset)); save.frame = NSRect(x: 332, y: 318, width: 60, height: 26); save.bezelStyle = .rounded; content.addSubview(save)
+        let del = NSButton(title: "削除", target: self, action: #selector(deletePreset)); del.frame = NSRect(x: 394, y: 318, width: 52, height: 26); del.bezelStyle = .rounded; content.addSubview(del)
+
+        let sep = NSBox(frame: NSRect(x: 12, y: 306, width: 446, height: 1)); sep.boxType = .separator; content.addSubview(sep)
+
+        // Parameter rows (top-down).
+        let blue = NSColor(srgbRed: 0, green: 122.0 / 255.0, blue: 1, alpha: 1)
+        let pink = NSColor.systemPink
+        let red = NSColor(srgbRed: 0.85, green: 0.2, blue: 0.15, alpha: 1)
+        let tsun = j["tsundere"] as? [String: Any]
+        let warj = j["war"] as? [String: Any]
+        let pr = j["prosody"] as? [String: Any] ?? [:]
+        let range = j["prosodyRange"] as? [String: Any] ?? [:]
+        func bound(_ key: String, _ dlo: Double, _ dhi: Double) -> (Double, Double) {
+            let r = range[key] as? [Any]
+            return ((r?.first as? Double) ?? dlo, (r?.last as? Double) ?? dhi)
+        }
+        let (slo, shi) = bound("speed", 0.5, 1.5)
+        let (plo, phi) = bound("pitch", -0.15, 0.15)
+        let (ilo, ihi) = bound("intonation", 0.0, 1.5)
+
+        let rows: [SettingsRow] = [
+            SettingsRow(title: "音量", asCheckbox: false, on: false, lo: 0, hi: 2, value: (j["volume"] as? Double) ?? 1, fill: blue,
+                        onChange: { State.cli(["volume", String(format: "%.2f", $0)]) }),
+            SettingsRow(title: "ツンデレ", asCheckbox: true, on: (tsun?["enabled"] as? Bool) ?? false, lo: 0, hi: 1, value: (tsun?["level"] as? Double) ?? 0.5, fill: pink,
+                        onToggle: { State.cli(["tsundere", "toggle"]) },
+                        onChange: { State.cli(["tsundere", "level", String(format: "%.2f", $0)]) }),
+            SettingsRow(title: "戦争", asCheckbox: true, on: (warj?["enabled"] as? Bool) ?? false, lo: 0, hi: 1, value: (warj?["level"] as? Double) ?? 0.5, fill: red,
+                        onToggle: { State.cli(["war", "toggle"]) },
+                        onChange: { State.cli(["war", "level", String(format: "%.2f", $0)]) }),
+            SettingsRow(title: "速さ", asCheckbox: false, on: false, lo: slo, hi: shi, value: (pr["speed"] as? Double) ?? 1, fill: blue,
+                        onChange: { State.cli(["voice-prosody", "speed", String(format: "%.3f", $0)]) }),
+            SettingsRow(title: "高さ", asCheckbox: false, on: false, lo: plo, hi: phi, value: (pr["pitch"] as? Double) ?? 0, fill: blue,
+                        onChange: { State.cli(["voice-prosody", "pitch", String(format: "%.3f", $0)]) }),
+            SettingsRow(title: "抑揚", asCheckbox: false, on: false, lo: ilo, hi: ihi, value: (pr["intonation"] as? Double) ?? 1, fill: blue,
+                        onChange: { State.cli(["voice-prosody", "intonation", String(format: "%.3f", $0)]) }),
+        ]
+        var y = 264
+        let header = NSTextField(labelWithString: "ツンデレ/戦争は 0=デレ・平時 〜 1=ツン・危機")
+        header.frame = NSRect(x: 16, y: 286, width: 440, height: 16)
+        header.font = .systemFont(ofSize: 11); header.textColor = .secondaryLabelColor
+        content.addSubview(header)
+        for r in rows {
+            r.view.frame.origin = NSPoint(x: 0, y: CGFloat(y))
+            content.addSubview(r.view)
+            self.rows.append(r) // retain
+            y -= 36
+        }
+        w.contentView = content
+    }
+
+    private var rows: [SettingsRow] = []
+
+    private func presetNames() -> [String] {
+        let out = State.cli(["preset", "list"], capture: true) ?? ""
+        return out.split(separator: "\n").map { String($0).trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty && $0 != "(no presets)" }
+    }
+
+    private func reloadValues() {
+        rows.removeAll()
+        rebuildContent()
+    }
+
+    @objc private func applyPreset() {
+        guard let name = presetPopup?.titleOfSelectedItem, name != "(なし)" else { return }
+        State.cli(["preset", "load", name])
+        reloadValues()
+    }
+    @objc private func deletePreset() {
+        guard let name = presetPopup?.titleOfSelectedItem, name != "(なし)" else { return }
+        State.cli(["preset", "delete", name])
+        reloadValues()
+    }
+    @objc private func savePreset() {
+        let alert = NSAlert()
+        alert.messageText = "プリセットを保存"
+        alert.informativeText = "現在の音量・ツンデレ・戦争・読み上げ設定を名前を付けて保存します"
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
+        field.placeholderString = "例: 集中モード"
+        alert.accessoryView = field
+        alert.addButton(withTitle: "保存"); alert.addButton(withTitle: "キャンセル")
+        alert.window.initialFirstResponder = field
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let name = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return }
+        State.cli(["preset", "save", name])
+        reloadValues()
+    }
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var timer: Timer?
+    private let settings = SettingsWindowController()
 
     // The "waiting for input" popup — one floating card per waiting pane.
     private var waitingCards: [String: PopupCard] = [:] // keyed by tty
@@ -424,6 +615,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func toggle() { State.setMuted(!State.isMuted); render() }
     @objc private func quit() { NSApp.terminate(nil) }
+    @objc private func openSettings() { settings.show() }
 
     @objc private func volumeChanged(_ s: NSSlider) { State.setVolume(s.doubleValue) }
     // Slider is shown reversed (left = ツン, right = デレ) but the file keeps the
@@ -761,6 +953,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         notifyParent.submenu = notifySub
         menu.addItem(notifyParent)
+
+        menu.addItem(.separator())
+        let settingsItem = NSMenuItem(title: "⚙ 設定（スライダー・数値・プリセット）…", action: #selector(openSettings), keyEquivalent: ",")
+        settingsItem.target = self
+        menu.addItem(settingsItem)
 
         menu.addItem(.separator())
         let quitItem = NSMenuItem(title: "ai-notify を終了", action: #selector(quit), keyEquivalent: "q")
