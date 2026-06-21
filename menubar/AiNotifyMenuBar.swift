@@ -140,6 +140,16 @@ enum State {
             }
     }
 
+    // Per-kind notification toggles (must mirror state.mjs defaults).
+    static func notifyKinds() -> [(key: String, label: String, on: Bool)] {
+        let defaults: [String: Bool] = ["input": true, "permission": true, "info": false, "done": true, "subagent-done": false]
+        let labels = ["input": "入力待ち", "permission": "許可待ち", "info": "その他の通知", "done": "完了", "subagent-done": "サブエージェント完了"]
+        let saved = json("notify-kinds.json")
+        return ["input", "permission", "info", "done", "subagent-done"].map { k in
+            (k, labels[k] ?? k, (saved[k] as? Bool) ?? defaults[k] ?? true)
+        }
+    }
+
     // Tsundere baseline level 0.0 (デレ) – 1.0 (ツン). Same file the CLI reads.
     static func setTsundereLevel(_ v: Double) {
         try? FileManager.default.createDirectory(atPath: dir(), withIntermediateDirectories: true)
@@ -165,6 +175,15 @@ enum State {
     }
 }
 
+// A card view that reliably dismisses on click even when its window isn't the
+// active app (a gesture recognizer on a non-key floating window is unreliable;
+// acceptsFirstMouse + mouseDown is not).
+final class ClickableCardView: NSView {
+    var onClick: () -> Void = {}
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    override func mouseDown(with event: NSEvent) { onClick() }
+}
+
 // One floating "応答待ち" card, built once and updated in place.
 final class PopupCard: NSObject {
     let window: NSWindow
@@ -184,7 +203,8 @@ final class PopupCard: NSObject {
         window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         window.ignoresMouseEvents = false
 
-        let card = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 96))
+        let card = ClickableCardView(frame: NSRect(x: 0, y: 0, width: 300, height: 96))
+        card.onClick = { [weak self] in self?.onClick() }
         card.wantsLayer = true
         card.layer?.cornerRadius = 16
         card.layer?.backgroundColor = NSColor(calibratedWhite: 0.10, alpha: 0.95).cgColor
@@ -203,7 +223,7 @@ final class PopupCard: NSObject {
         card.addSubview(face)
 
         let badge = NSTextField(labelWithString: "🟡 応答待ち")
-        badge.frame = NSRect(x: 96, y: 56, width: 196, height: 22)
+        badge.frame = NSRect(x: 96, y: 56, width: 150, height: 22)
         badge.font = .systemFont(ofSize: 13, weight: .bold)
         badge.textColor = .systemYellow
         badge.isBordered = false
@@ -218,7 +238,17 @@ final class PopupCard: NSObject {
         label.backgroundColor = .clear
         card.addSubview(label)
 
-        card.addGestureRecognizer(NSClickGestureRecognizer(target: self, action: #selector(clicked)))
+        // Visible close button (✕) at the top-right.
+        let close = NSButton(frame: NSRect(x: 272, y: 70, width: 20, height: 20))
+        close.title = "✕"
+        close.font = .systemFont(ofSize: 11, weight: .bold)
+        close.isBordered = false
+        close.contentTintColor = .secondaryLabelColor
+        close.setButtonType(.momentaryChange)
+        close.target = self
+        close.action = #selector(clicked)
+        card.addSubview(close)
+
         window.contentView = card
     }
 
@@ -672,6 +702,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         popupSub.addItem(portItem)
         popupParent.submenu = popupSub
         menu.addItem(popupParent)
+
+        // Which kinds of event actually alert (sound / banner / popup).
+        let notifyParent = NSMenuItem(title: "通知する種類", action: nil, keyEquivalent: "")
+        let notifySub = NSMenu()
+        notifySub.addItem(disabledHeader("チェック＝音・バナーを出す"))
+        for kind in State.notifyKinds() {
+            let it = NSMenuItem(title: kind.label, action: #selector(runItem(_:)), keyEquivalent: "")
+            it.target = self
+            it.representedObject = ["notify", kind.key, "toggle"]
+            it.state = kind.on ? .on : .off
+            notifySub.addItem(it)
+        }
+        notifyParent.submenu = notifySub
+        menu.addItem(notifyParent)
 
         menu.addItem(.separator())
         let quitItem = NSMenuItem(title: "ai-notify を終了", action: #selector(quit), keyEquivalent: "q")

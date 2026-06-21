@@ -44,13 +44,17 @@ const entry = (node, cliPath, event) => ({
   ],
 });
 
-const EVENTS = { Notification: 'waiting', Stop: 'done' };
+// SubagentStop lets the user (optionally) be alerted when a sub-agent finishes,
+// distinctly from the main turn's Stop. Off by default (see notify kinds), but
+// wired so the toggle works. Only the CORE events count toward "wired" status.
+const EVENTS = { Notification: 'waiting', Stop: 'done', SubagentStop: 'subagent-done' };
+const CORE_EVENTS = ['Notification', 'Stop'];
 
 export const status = () => {
   if (!detect()) return { installed: false, wired: false };
   const data = load();
   const hooks = data.hooks || {};
-  const wired = Object.keys(EVENTS).every((k) =>
+  const wired = CORE_EVENTS.every((k) =>
     (hooks[k] || []).some((g) => (g.hooks || []).some((h) => isOurs(h.command)))
   );
   return { installed: true, wired };

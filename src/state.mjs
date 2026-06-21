@@ -234,6 +234,24 @@ export const setPopupImage = (p) => {
   else rmSync(popupImagePath(), { force: true });
 };
 
+// Per-kind notification toggles — which kinds of agent event actually alert
+// (sound / banner / voice / popup). Lets you, e.g., keep "input waiting" but
+// silence "done", or enable "sub-agent done". Disabled kinds still update the
+// waiting state correctly (so a suppressed "done" still clears a popup).
+export const NOTIFY_KINDS = ['input', 'permission', 'info', 'done', 'subagent-done'];
+const NOTIFY_KIND_DEFAULTS = { input: true, permission: true, info: false, done: true, 'subagent-done': false };
+const notifyKindsPath = () => join(stateDir(), 'notify-kinds.json');
+export const getNotifyKinds = () => ({ ...NOTIFY_KIND_DEFAULTS, ...readJson(notifyKindsPath(), {}) });
+export const isNotifyKindEnabled = (kind) => {
+  const k = getNotifyKinds();
+  return kind in k ? !!k[kind] : true; // unknown kinds default to alerting
+};
+export const setNotifyKind = (kind, on) => {
+  const all = readJson(notifyKindsPath(), {});
+  all[kind] = !!on;
+  writeJson(notifyKindsPath(), all);
+};
+
 // Popup notify threshold: only show the popup once a pane has been waiting this
 // many seconds (0 = immediately) — so transient / sub-agent waits don't nag.
 const popupDelayPath = () => join(stateDir(), 'popup-delay');

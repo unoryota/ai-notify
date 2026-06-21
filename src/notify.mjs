@@ -145,7 +145,12 @@ const shortenForSpeech = (text, max = 40) => {
 };
 
 // Public entry. Called by the hook handler with already-parsed fields.
-export const emit = ({ provider = 'default', event = 'done', label = '', message = '' }) => {
+// `alert` (default true) gates whether this event actually makes noise — sound,
+// spoken read-out, banner, highlight, and the waiting popup. When false the call
+// still keeps the pane/waiting state correct (so a suppressed "done" still clears
+// a popup), it just stays silent. The hook decides `alert` from the per-kind
+// notification toggles.
+export const emit = ({ provider = 'default', event = 'done', label = '', message = '', alert = true }) => {
   const config = readConfig();
   const muted = isMuted();
   const p = config.providers[provider] || config.providers.default;
@@ -181,9 +186,10 @@ export const emit = ({ provider = 'default', event = 'done', label = '', message
   // pane's assigned name. Also remember the pane so the menu bar can list it.
   const tty = controllingTty();
   recordPane(tty, label);
-  // waiting -> yellow menu bar status (+ the popup); done clears it. Pass the
-  // reason text so the popup can filter by it (e.g. ignore sub-agent waits).
-  setPaneWaiting(tty, event === 'waiting', event === 'waiting' ? message || fromTemplate : '');
+  // waiting -> yellow menu bar status (+ the popup); done clears it. A suppressed
+  // (alert=false) waiting must NOT light up the popup, so only set it when alert.
+  // "done" always clears regardless of alert. Pass the reason text for filtering.
+  setPaneWaiting(tty, event === 'waiting' && alert, event === 'waiting' ? message || fromTemplate : '');
   const pane = readPaneSetting(tty);
 
   // Name this pane in the read-out, most-reliable identity first:
@@ -254,7 +260,7 @@ export const emit = ({ provider = 'default', event = 'done', label = '', message
     }
   }
 
-  if (!muted) {
+  if (alert && !muted) {
     playSound(soundName, outVol);
     if (config.speak && outVol > 0) {
       let spoken = false;
@@ -266,7 +272,7 @@ export const emit = ({ provider = 'default', event = 'done', label = '', message
     }
   }
 
-  if (!muted || config.bannerWhenMuted) {
+  if (alert && (!muted || config.bannerWhenMuted)) {
     const waiting = event === 'waiting';
     banner(
       waiting ? `⏳ ${label || 'input'}` : `✓ ${label || 'done'}`,
@@ -283,7 +289,7 @@ export const emit = ({ provider = 'default', event = 'done', label = '', message
   // Visual highlight of *this* terminal window so a waiting pane stands out
   // among many. Always best-effort, and applied even when muted (you still want
   // to see which window needs you during a meeting).
-  if (config.highlightWaiting) {
+  if (alert && config.highlightWaiting) {
     try {
       if (event === 'waiting') highlightWaiting(label, config.highlightColor);
       else if (event === 'done') clearHighlight();

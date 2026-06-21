@@ -41,6 +41,10 @@ import {
   setPopupDelay,
   getPopupIgnore,
   setPopupIgnore,
+  NOTIFY_KINDS,
+  getNotifyKinds,
+  setNotifyKind,
+  isNotifyKindEnabled,
 } from './state.mjs';
 import { resolve as resolvePath, join as pathJoin } from 'node:path';
 
@@ -598,6 +602,38 @@ const cmds = {
     log(`✓ ${bits.join('  ·  ')}`);
   },
 
+  // Per-kind notification toggles: which kinds of agent event actually alert
+  // (sound / banner / voice / popup). Lets you, e.g., keep input-waiting but
+  // silence "done", or turn on sub-agent completions.
+  //   notify [<kind> on|off|toggle]
+  notify() {
+    const KIND_LABELS = {
+      input: '入力待ち  (Claude is waiting for your input)',
+      permission: '許可待ち  (a permission prompt)',
+      info: 'その他  (auth / MCP elicitation — informational)',
+      done: '完了  (a turn finished)',
+      'subagent-done': 'サブエージェント完了  (a sub-agent finished)',
+    };
+    const [kind, action] = positionals;
+    if (kind) {
+      if (!NOTIFY_KINDS.includes(kind)) {
+        console.error(`unknown kind: ${kind}\n  kinds: ${NOTIFY_KINDS.join(', ')}`);
+        process.exit(1);
+      }
+      const cur = !!getNotifyKinds()[kind];
+      const on = action === 'toggle' ? !cur : action !== 'off';
+      setNotifyKind(kind, on);
+      if (kind === 'subagent-done' && on) {
+        log('subagent-done: ON — run `ai-notify init` once so the SubagentStop hook is wired.');
+      }
+      return log(`${kind}: ${on ? '🔔 ON (notify)' : '🔕 OFF (silent)'}`);
+    }
+    const k = getNotifyKinds();
+    log('Notify on these events:\n');
+    for (const key of NOTIFY_KINDS) log(`  ${k[key] ? '🔔' : '🔕'} ${key.padEnd(14)} ${KIND_LABELS[key]}`);
+    log('\nToggle:  ai-notify notify done off    ·    ai-notify notify subagent-done on');
+  },
+
   // The "waiting" character popup (menu bar app): an always-on-top window that
   // shows a character saying which pane is waiting for input. macOS-only effect.
   //   popup [on|off|toggle|image <path>|delay <sec>|ignore <kw,kw>|status]
@@ -845,6 +881,8 @@ const cmds = {
     let event = opt('event', 'done');
     let cwd = '';
     let message = '';
+    let ntype = '';
+    let isSubagent = false;
 
     if (source === 'codex') {
       // Codex passes a single JSON argument.
@@ -859,16 +897,24 @@ const cmds = {
       const data = readStdinJson();
       cwd = data.cwd || '';
       message = data.message || '';
+      ntype = data.notification_type || ''; // idle_prompt | permission_prompt | ...
+      isSubagent = !!data.agent_id; // present => fired from inside a sub-agent
       // The Stop hook has no message, so "done" would only say "finished".
       // Pull the agent's last reply from the transcript so the notification
       // says WHAT was done.
-      if (!message && event === 'done' && data.transcript_path) {
+      if (!message && (event === 'done' || event === 'subagent-done') && data.transcript_path) {
         message = lastAssistantText(data.transcript_path);
       }
     }
 
+    // Classify the event into a kind and honor the per-kind notification toggle.
+    // A disabled kind still calls emit (to keep the waiting state correct), but
+    // silently. SubagentStop arrives as event "subagent-done" → emit as "done".
+    const kind = classifyKind(event, ntype, isSubagent);
+    const alert = isNotifyKindEnabled(kind);
     const label = deriveLabel(cwd);
-    emit({ provider: byId(source) ? source : 'default', event, label, message });
+    const emitEvent = event === 'subagent-done' ? 'done' : event;
+    emit({ provider: byId(source) ? source : 'default', event: emitEvent, label, message, alert });
   },
 
   version() { log(VERSION); },
@@ -877,6 +923,17 @@ const cmds = {
 
 function emitConfirm() {
   emit({ provider: 'default', event: 'done', label: 'ai-notify', message: readConfig().onMessage });
+}
+
+// Map a raw hook event + Claude's notification_type/agent_id to a notify "kind"
+// the user can toggle. See state.mjs NOTIFY_KINDS.
+function classifyKind(event, ntype, isSubagent) {
+  if (event === 'subagent-done' || (event === 'done' && isSubagent)) return 'subagent-done';
+  if (event === 'done') return 'done';
+  // waiting (Claude Notification): the type tells us *why*.
+  if (ntype === 'permission_prompt') return 'permission';
+  if (ntype === 'idle_prompt' || ntype === 'elicitation_dialog' || ntype === '') return 'input';
+  return 'info'; // auth_success, elicitation_complete/response, anything else
 }
 
 function printHelp() {
@@ -893,6 +950,7 @@ Usage:
   ai-notify tsundere [on|off|level <0-1>|test|status]   tsundere persona (ツン⇄デレ by urgency)
   ai-notify voice-prosody [speed|pitch|intonation <v>|reset]  VOICEVOX read-out tuning
   ai-notify menubar [install|uninstall|status]       native menu bar bell (macOS)
+  ai-notify notify [<kind> on|off]                   which events alert: input|permission|info|done|subagent-done
   ai-notify popup [on|off|image <p>|delay <s>|ignore <kw>|portraits]  per-pane "waiting" popup, in the pane's voice (macOS)
   ai-notify translate [on <lang>|off|test]           speak agent text in your language
   ai-notify doctor                                    check deps & wiring

@@ -88,6 +88,28 @@ AI_NOTIFY_TSUNDERE_LEVEL=0.8      # this window's tsundere baseline (0=デレ �
 AI_NOTIFY_VOLUME=0.5              # this window's volume (0.0–2.0)
 ```
 
+## 🔔 Which events alert
+
+Not every agent event deserves a sound and a banner. ai-notify classifies each one (using Claude Code's `notification_type` / sub-agent markers) into a **kind**, and you choose which kinds alert:
+
+```sh
+ai-notify notify                       # show the matrix
+ai-notify notify done off              # finished a turn → stay silent
+ai-notify notify subagent-done on      # a sub-agent finished → alert
+```
+
+| kind | when | default |
+| ---- | ---- | ------- |
+| `input` | Claude is waiting for **your input** (`idle_prompt`) | 🔔 on |
+| `permission` | a **permission** prompt | 🔔 on |
+| `info` | auth / MCP elicitation (informational) | 🔕 off |
+| `done` | a turn **finished** (Stop) | 🔔 on |
+| `subagent-done` | a **sub-agent** finished (SubagentStop) | 🔕 off |
+
+A disabled kind is fully silent — no sound, banner, voice, or popup — but still keeps the waiting state correct (a suppressed `done` still clears a popup). Same toggles live in the menu bar under **通知する種類**. (`subagent-done` needs `ai-notify init` once to wire the SubagentStop hook.)
+
+> Note: Claude does **not** emit a notification while merely waiting on a sub-agent to run — `Notification` fires only when *you* are needed. So "waiting for input" and "busy with a sub-agent" aren't separate notifications; the kinds above are what's actually distinguishable.
+
 ## 🎛️ Native menu bar app — mute, volume, and voices
 
 You can't type into the terminal that's running an agent, so drive everything from the **menu bar**:
