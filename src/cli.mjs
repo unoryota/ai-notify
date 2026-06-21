@@ -253,6 +253,33 @@ const cmds = {
     const config = readConfig();
     const url = config.voicevox?.url || voicevox.DEFAULT_URL;
 
+    if (sub === 'setup') {
+      if (voicevox.isAvailable(url)) {
+        log('✓ VOICEVOX engine is already running.');
+        return log('Enable it:  ai-notify voicevox on    (list voices: ai-notify voicevox speakers)');
+      }
+      if (process.platform !== 'darwin') {
+        log(`VOICEVOX is not running. Install it from ${voicevox.DOWNLOAD_URL} and launch the app, then:`);
+        return log('  ai-notify voicevox on');
+      }
+      if (voicevox.appInstalled()) {
+        log('VOICEVOX is installed but not running. Launching it…');
+        voicevox.launchApp();
+        log('  Waiting for the engine to start (first launch can take ~30s)…');
+        if (voicevox.waitForEngine(url, 45000)) {
+          log('✓ engine ready.');
+          return log('Enable it:  ai-notify voicevox on');
+        }
+        return log('  Still starting. Once VOICEVOX is open, run:  ai-notify voicevox on');
+      }
+      log('VOICEVOX is not installed. Opening the download page…');
+      voicevox.openDownloadPage();
+      log('  1. Download the macOS app and move it to Applications.');
+      log('  2. First launch is Gatekeeper-blocked (it is open-source / unsigned):');
+      log('       xattr -dr com.apple.quarantine /Applications/VOICEVOX.app && open -a VOICEVOX');
+      log('  3. Then run:  ai-notify voicevox setup   (or  ai-notify voicevox on)');
+      return;
+    }
     if (sub === 'speakers') {
       const list = voicevox.listSpeakers(url);
       if (!list.length) return log(`No speakers (is VOICEVOX running at ${url}?).`);
@@ -524,7 +551,7 @@ Usage:
   ai-notify toggle | on | off | status               control the mute switch
   ai-notify volume [0.0-2.0]                          get/set output volume
   ai-notify voice [number|name|preview|default]      pick the spoken voice
-  ai-notify voicevox [on <id>|off|speakers|test]     speak in VOICEVOX character voices
+  ai-notify voicevox [setup|on <id>|off|speakers|test]  speak in VOICEVOX character voices
   ai-notify menubar [install|uninstall|status]       native menu bar bell (macOS)
   ai-notify translate [on <lang>|off|test]           speak agent text in your language
   ai-notify doctor                                    check deps & wiring

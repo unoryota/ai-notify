@@ -11,12 +11,54 @@
 import { execSync, execFileSync } from 'node:child_process';
 import { existsSync, statSync, mkdtempSync, rmSync, appendFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { tmpdir } from 'node:os';
+import { tmpdir, homedir } from 'node:os';
 import { stateDir } from './state.mjs';
 
 export const DEFAULT_URL = 'http://127.0.0.1:50021';
+export const DOWNLOAD_URL = 'https://voicevox.hiroshiba.jp/';
 
 const platform = process.platform;
+
+const sleep = (ms) => {
+  try {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+  } catch {
+    /* SharedArrayBuffer unavailable — skip the wait */
+  }
+};
+
+// Is the VOICEVOX app installed (macOS)?
+export const appInstalled = () => {
+  if (platform !== 'darwin') return false;
+  return ['/Applications/VOICEVOX.app', join(homedir(), 'Applications/VOICEVOX.app')].some((p) => existsSync(p));
+};
+
+export const launchApp = () => {
+  try {
+    if (platform === 'darwin') execFileSync('open', ['-a', 'VOICEVOX']);
+  } catch {
+    /* ignore */
+  }
+};
+
+export const openDownloadPage = () => {
+  try {
+    if (platform === 'darwin') execFileSync('open', [DOWNLOAD_URL]);
+    else if (platform === 'linux') execFileSync('xdg-open', [DOWNLOAD_URL]);
+  } catch {
+    /* ignore */
+  }
+};
+
+// Poll until the engine answers, or timeout.
+export const waitForEngine = (url = DEFAULT_URL, timeoutMs = 40000) => {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (isAvailable(url, 1500)) return true;
+    sleep(2000);
+  }
+  return false;
+};
 
 // Record why a synthesis fell back to the OS voice, so intermittent fallbacks
 // are diagnosable instead of silent. Best-effort.

@@ -77,9 +77,10 @@ Optionally speak your notifications in [VOICEVOX](https://voicevox.hiroshiba.jp/
 
 > **Needs the VOICEVOX app installed and running.** ai-notify calls its local engine; it does not bundle the voices. Without it, ai-notify just uses your OS voice (Samantha, Kyoko, …) — no setup required.
 
-Run the VOICEVOX app, then:
+`ai-notify voicevox setup` walks you through it — it opens the download page, or launches the app and waits for the engine if it's already installed. Then:
 
 ```sh
+ai-notify voicevox setup        # install / launch VOICEVOX
 ai-notify voicevox speakers     # list available characters + ids
 ai-notify voicevox on 3         # use speaker 3 (e.g. ずんだもん)
 ```
