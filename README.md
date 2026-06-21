@@ -7,7 +7,9 @@
 ![ai-notify demo](https://raw.githubusercontent.com/unoryota/ai-notify/main/assets/hero-en.gif)
 
 ```sh
-npm i -g ai-notify
+brew install unoryota/tap/ai-notify   # macOS (Homebrew)
+# or:  npm i -g ai-notify
+
 ai-notify init        # auto-detects your agents and wires them
 ```
 

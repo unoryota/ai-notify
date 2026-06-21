@@ -7,7 +7,9 @@
 ![ai-notify demo](https://raw.githubusercontent.com/unoryota/ai-notify/main/assets/hero-ja.gif)
 
 ```sh
-npm i -g ai-notify
+brew install unoryota/tap/ai-notify   # macOS（Homebrew）
+# または:  npm i -g ai-notify
+
 ai-notify init        # インストール済みのエージェントを自動検出して配線
 ```
 
