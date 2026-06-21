@@ -19,6 +19,11 @@ brew install unoryota/tap/ai-notify   # macOS (Homebrew)
 ai-notify init        # auto-detects your agents and wires them
 ```
 
+That's the whole setup — `init` finds Claude Code / Codex / Gemini and wires
+their hooks. From then on you control everything with one switch:
+
+![ai-notify usage: init, status, one-switch mute, voices](https://raw.githubusercontent.com/unoryota/ai-notify/main/assets/usage.gif)
+
 ## What makes it different
 
 Plenty of agents go quiet for minutes. ai-notify pulls you back at the right moment — and is built for **running many agents at once**:
@@ -74,7 +79,7 @@ ai-notify menubar install   # native menu bar app, starts at login
 
 A monochrome waveform icon shows status by color (Adobe-style): plain when idle, a **yellow** dot when an agent is waiting for you, **red + slash** when muted.
 
-- **Left-click** → menu: a **volume slider**, a **tsundere** toggle + デレ⇄ツン slider, the **voice list** (system + VOICEVOX), and **per-pane** controls — each open terminal gets its own voice *and* volume.
+- **Left-click** → menu: a **volume slider**, a **tsundere** toggle + デレ⇄ツン slider, the **voice list** (system + VOICEVOX), and **per-pane** controls. Each open terminal gets its own **spoken name** (read out so you know *which* pane finished), **voice**, and **volume** — the row shows each pane's voice at a glance.
 - **Right-click** → instant mute toggle.
 
 No third-party app needed. Prefer something else? There are drop-in recipes for **Hammerspoon**, **SwiftBar/xbar**, **Raycast**, and the built-in **macOS Shortcuts** in [`recipes/`](recipes/). `ai-notify status --icon` prints just `🔔`/`🔕` to embed in tmux / your prompt / Claude Code's status line.
