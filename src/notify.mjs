@@ -193,7 +193,13 @@ export const emit = ({ provider = 'default', event = 'done', label = '', message
   //   3. the auto-derived label — only when speakLabel is on (else slow filler).
   const envName = (process.env.AI_NOTIFY_LABEL || '').trim();
   const spokenName = envName || pane.speakName || (config.speakLabel === true && label ? label : '');
-  const speakText = spokenName ? `${spokenName}、${spokenBody}` : spokenBody;
+  // Join the pane name to the read-out as the SUBJECT. Japanese needs the は
+  // topic particle ("ジョンは、…") — a bare comma ("ジョン、…") reads as calling
+  // out TO John, not saying John is the one finishing / waiting. Other languages
+  // just get a comma.
+  const isJa = (s) => /[぀-ヿ㐀-鿿ｦ-ﾟ]/.test(s); // kana / kanji / half-width kana
+  const joinName = (name, body) => (name ? `${name}${isJa(body) ? 'は、' : ', '}${body}` : body);
+  const speakText = joinName(spokenName, spokenBody);
 
   // Per-pane voice (precedence: $AI_NOTIFY_* env > this pane's pick > global).
   const tts = pane.tts || config.tts;
@@ -238,7 +244,7 @@ export const emit = ({ provider = 'default', event = 'done', label = '', message
     speakTone = tsundere.axisFor(eff);
     outVol = Math.min(2, Math.max(0, vol * tsundere.volumeMul(tier, ts.volumeBoost !== false)));
     outText = tsundere.wrap(spokenBody, eff, tier, ts.lang || 'ja', nextCounter('tsundere'));
-    if (spokenName) outText = `${spokenName}、${outText}`;
+    if (spokenName) outText = joinName(spokenName, outText);
     if (tts === 'voicevox') {
       const sm = ts.styleMap || voicevox.resolveStyles(outSpeaker, config.voicevox?.url);
       const axis = tsundere.axisFor(eff);
