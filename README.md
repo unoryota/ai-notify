@@ -125,7 +125,13 @@ ai-notify popup image ~/zundamon.png    # your own character (PNG/JPG); default 
 ai-notify popup off
 ```
 
-It floats over every app and Space, shows `<pane name> は応答待ち！`, and lists multiple waiting panes at once. Click it to dismiss. macOS-only (needs the menu bar app installed).
+Each waiting pane gets **its own card** at the bottom-right (they stack), and the card shows the pane's **VOICEVOX voice character** — a pane speaking as ずんだもん shows ずんだもん, one as 春日部つむぎ shows つむぎ. Click a card to dismiss it. macOS-only (needs the menu bar app installed).
+
+```sh
+ai-notify popup portraits   # cache every VOICEVOX character's official portrait (run once; engine must be on)
+```
+
+Everything here is also in the menu bar: **応答待ちポップアップ** → enable, 待ち時間 (delay), 無視ワード (ignore), and ボイスの立ち絵を取得 (portraits).
 
 **Control when it pops up.** Not every wait deserves your attention — a quick sub-agent turnaround isn't worth interrupting you, but a real "needs your input" is. Two knobs:
 

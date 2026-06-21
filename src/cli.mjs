@@ -2,7 +2,7 @@
 // ai-notify — desktop/sound notifications for terminal AI coding agents.
 // One mute switch for all of them, across every terminal. No daemon.
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { execSync, execFileSync } from 'node:child_process';
 import { providers, byId } from './providers/index.mjs';
 import { emit } from './notify.mjs';
@@ -42,7 +42,7 @@ import {
   getPopupIgnore,
   setPopupIgnore,
 } from './state.mjs';
-import { resolve as resolvePath } from 'node:path';
+import { resolve as resolvePath, join as pathJoin } from 'node:path';
 
 // Single source of truth: read the version from package.json so `--version`
 // (and the Homebrew formula test that checks it) always matches the release.
@@ -625,6 +625,45 @@ const cmds = {
       setPopupDelay(Math.max(0, v));
       return log(v > 0 ? `popup delay → ${Math.max(0, v)}s (waits shorter than this are ignored)` : 'popup delay → 0s (immediate)');
     }
+    // Cache each VOICEVOX character's official portrait so the popup can show a
+    // pane in its own voice's character. Saved per style id: portraits/<id>.png.
+    if (sub === 'portraits') {
+      const url = readConfig().voicevox?.url || voicevox.DEFAULT_URL;
+      if (!voicevox.isAvailable(url)) {
+        console.error('VOICEVOX engine not running — start it, then: ai-notify popup portraits');
+        process.exit(1);
+      }
+      const dir = pathJoin(paths.stateDir(), 'portraits');
+      mkdirSync(dir, { recursive: true });
+      let speakers;
+      try {
+        speakers = JSON.parse(execSync(`curl -s -m 6 "${url}/speakers"`, { encoding: 'utf8', maxBuffer: 1 << 24 }));
+      } catch {
+        console.error('could not reach the VOICEVOX engine.');
+        process.exit(1);
+      }
+      let n = 0;
+      for (const sp of speakers) {
+        let info;
+        try {
+          const raw = execSync(`curl -s -m 8 "${url}/speaker_info?speaker_uuid=${sp.speaker_uuid}"`, {
+            encoding: 'utf8',
+            maxBuffer: 1 << 26,
+          });
+          info = JSON.parse(raw);
+        } catch {
+          continue;
+        }
+        if (!info.portrait) continue;
+        const buf = Buffer.from(info.portrait, 'base64');
+        for (const st of sp.styles || []) {
+          writeFileSync(pathJoin(dir, `${st.id}.png`), buf);
+          n++;
+        }
+      }
+      return log(`synced ${n} voice portrait(s) → ${dir}`);
+    }
+
     // Suppress the popup when the waiting reason contains any of these keywords.
     if (sub === 'ignore') {
       const kw = positionals.slice(1).join(' ').trim();
@@ -854,7 +893,7 @@ Usage:
   ai-notify tsundere [on|off|level <0-1>|test|status]   tsundere persona (ツン⇄デレ by urgency)
   ai-notify voice-prosody [speed|pitch|intonation <v>|reset]  VOICEVOX read-out tuning
   ai-notify menubar [install|uninstall|status]       native menu bar bell (macOS)
-  ai-notify popup [on|off|image <p>|delay <s>|ignore <kw>]  "waiting for input" popup + when it shows (macOS)
+  ai-notify popup [on|off|image <p>|delay <s>|ignore <kw>|portraits]  per-pane "waiting" popup, in the pane's voice (macOS)
   ai-notify translate [on <lang>|off|test]           speak agent text in your language
   ai-notify doctor                                    check deps & wiring
   ai-notify config [init]                             print (or write) config

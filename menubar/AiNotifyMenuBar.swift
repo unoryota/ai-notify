@@ -91,24 +91,38 @@ enum State {
         return max(0, v) * 1000
     }
     static var popupIgnoreWords: [String] {
-        guard let s = try? String(contentsOfFile: file("popup-ignore"), encoding: .utf8) else { return [] }
-        return s.lowercased().split(whereSeparator: { $0 == "," || $0 == "\n" })
+        popupIgnoreRaw.lowercased().split(whereSeparator: { $0 == "," || $0 == "\n" })
             .map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
     }
+    static var popupIgnoreRaw: String {
+        (try? String(contentsOfFile: file("popup-ignore"), encoding: .utf8))?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    }
+    static var popupDelaySec: Int { Int((popupDelayMs / 1000).rounded()) }
 
-    // Panes currently waiting for input (most-recent first), each with a display
-    // name, the wait-start time, and the reason message. Name = spoken name,
-    // else recorded label, else tty. Handles both the old (number) and new
-    // ({ts,msg}) waiting.json value shapes.
-    static func waitingPanes() -> [(tty: String, name: String, ts: Double, msg: String)] {
-        func obj(_ name: String) -> [String: Any] {
-            (try? Data(contentsOf: URL(fileURLWithPath: file(name))))
-                .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
-        }
-        let waiting = obj("waiting.json")
+    static func json(_ name: String) -> [String: Any] {
+        (try? Data(contentsOf: URL(fileURLWithPath: file(name))))
+            .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
+    }
+
+    // The cached portrait file for a pane's VOICEVOX voice, if it has one and the
+    // portrait was synced (`ai-notify popup portraits`). nil => no voice portrait.
+    static func voicePortrait(_ tty: String) -> String? {
+        guard let pv = json("pane-voices.json")[tty] as? [String: Any],
+              (pv["tts"] as? String) == "voicevox",
+              let sp = pv["speaker"] as? NSNumber else { return nil }
+        let p = file("portraits/\(sp.intValue).png")
+        return FileManager.default.fileExists(atPath: p) ? p : nil
+    }
+
+    // Panes currently waiting for input (most-recent first): name, start time,
+    // reason message, and its voice's portrait path (if any). Handles both the
+    // old (number) and new ({ts,msg}) waiting.json value shapes.
+    static func waitingPanes() -> [(tty: String, name: String, ts: Double, msg: String, portrait: String?)] {
+        let waiting = json("waiting.json")
         if waiting.isEmpty { return [] }
-        let voices = obj("pane-voices.json")
-        let panes = obj("panes.json")
+        let voices = json("pane-voices.json")
+        let panes = json("panes.json")
         func tsmsg(_ v: Any) -> (Double, String) {
             if let n = v as? NSNumber { return (n.doubleValue, "") }
             if let d = v as? [String: Any] { return (((d["ts"] as? NSNumber)?.doubleValue) ?? 0, (d["msg"] as? String) ?? "") }
@@ -122,7 +136,7 @@ enum State {
                 let name = ((voices[item.tty] as? [String: Any])?["speakName"] as? String)
                     ?? ((panes[item.tty] as? [String: Any])?["label"] as? String)
                     ?? short
-                return (item.tty, name.isEmpty ? short : name, item.tm.0, item.tm.1)
+                return (item.tty, name.isEmpty ? short : name, item.tm.0, item.tm.1, voicePortrait(item.tty))
             }
     }
 
@@ -151,17 +165,85 @@ enum State {
     }
 }
 
+// One floating "応答待ち" card, built once and updated in place.
+final class PopupCard: NSObject {
+    let window: NSWindow
+    private let imageView = NSImageView()
+    private let face = NSTextField(labelWithString: "(｡･ω･｡)ﾉ")
+    private let label = NSTextField(wrappingLabelWithString: "")
+    var onClick: () -> Void = {}
+
+    override init() {
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 96),
+                          styleMask: [.borderless], backing: .buffered, defer: false)
+        super.init()
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.level = .floating
+        window.hasShadow = true
+        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+        window.ignoresMouseEvents = false
+
+        let card = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 96))
+        card.wantsLayer = true
+        card.layer?.cornerRadius = 16
+        card.layer?.backgroundColor = NSColor(calibratedWhite: 0.10, alpha: 0.95).cgColor
+        card.layer?.borderWidth = 2
+        card.layer?.borderColor = NSColor.systemYellow.withAlphaComponent(0.9).cgColor
+
+        imageView.frame = NSRect(x: 12, y: 12, width: 72, height: 72)
+        imageView.imageScaling = .scaleProportionallyUpOrDown
+        imageView.isHidden = true
+        card.addSubview(imageView)
+
+        face.frame = NSRect(x: 8, y: 30, width: 80, height: 36)
+        face.alignment = .center
+        face.font = .systemFont(ofSize: 17, weight: .semibold)
+        face.textColor = .systemYellow
+        card.addSubview(face)
+
+        let badge = NSTextField(labelWithString: "🟡 応答待ち")
+        badge.frame = NSRect(x: 96, y: 56, width: 196, height: 22)
+        badge.font = .systemFont(ofSize: 13, weight: .bold)
+        badge.textColor = .systemYellow
+        badge.isBordered = false
+        badge.backgroundColor = .clear
+        card.addSubview(badge)
+
+        label.frame = NSRect(x: 96, y: 12, width: 196, height: 44)
+        label.font = .systemFont(ofSize: 15, weight: .semibold)
+        label.textColor = .white
+        label.maximumNumberOfLines = 2
+        label.isBordered = false
+        label.backgroundColor = .clear
+        card.addSubview(label)
+
+        card.addGestureRecognizer(NSClickGestureRecognizer(target: self, action: #selector(clicked)))
+        window.contentView = card
+    }
+
+    @objc private func clicked() { onClick() }
+
+    func update(text: String, image: NSImage?) {
+        label.stringValue = text
+        if let img = image {
+            imageView.image = img
+            imageView.isHidden = false
+            face.isHidden = true
+        } else {
+            imageView.isHidden = true
+            face.isHidden = false
+        }
+    }
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var timer: Timer?
 
-    // The "waiting for input" character popup.
-    private var waitingWindow: NSWindow?
-    private var waitingImageView: NSImageView?
-    private var waitingFace: NSTextField?
-    private var waitingLabel: NSTextField?
-    private var waitingSig = ""        // current panes signature, to avoid needless redraws
-    private var waitingDismissedSig = "" // a signature the user clicked away; don't reshow it
+    // The "waiting for input" popup — one floating card per waiting pane.
+    private var waitingCards: [String: PopupCard] = [:] // keyed by tty
+    private var dismissedTtys: Set<String> = []          // clicked away; reshow on the next wait
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -230,12 +312,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if e.type == .rightMouseUp { toggle() } else { showMenu() }
     }
 
-    // --- "Waiting for input" character popup ------------------------------
-    // Driven off the 1s timer: when popup is enabled and a pane is waiting, show
-    // an always-on-top window with a character + "<name> は応答待ち！". It hides
-    // itself the moment nothing is waiting (or the user clicks it away).
+    // --- "Waiting for input" popup (one card per waiting pane) ------------
+    // Driven off the 1s timer. Each waiting pane gets its own floating card,
+    // showing its name and — when the pane's voice is a VOICEVOX character —
+    // that character's portrait. Cards stack at the bottom-right and disappear
+    // the moment their pane stops waiting (or you click one away).
     private func updateWaitingPopup() {
-        var panes: [(tty: String, name: String, ts: Double, msg: String)] = []
+        var panes: [(tty: String, name: String, ts: Double, msg: String, portrait: String?)] = []
         if State.popupEnabled {
             let now = Date().timeIntervalSince1970 * 1000
             let delayMs = State.popupDelayMs
@@ -249,109 +332,56 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 return true
             }
         }
-        if panes.isEmpty {
-            waitingDismissedSig = "" // reset; the next wait shows again
-            hideWaitingPopup()
-            return
+        let activeTtys = Set(panes.map { $0.tty })
+        dismissedTtys.formIntersection(activeTtys) // a pane that re-enters waiting shows again
+
+        let visible = panes.filter { !dismissedTtys.contains($0.tty) }
+        let visibleTtys = Set(visible.map { $0.tty })
+        // Tear down cards for panes that are no longer shown.
+        for (tty, card) in waitingCards where !visibleTtys.contains(tty) {
+            card.window.orderOut(nil)
+            waitingCards.removeValue(forKey: tty)
         }
-        let names = panes.map { $0.name }
-        let sig = names.joined(separator: "\u{1}")
-        if sig == waitingDismissedSig { return } // user dismissed exactly this set
-        if sig != waitingSig { waitingSig = sig; refreshWaitingPopup(names: names) }
-        waitingWindow?.orderFront(nil)
-    }
-
-    private func refreshWaitingPopup(names: [String]) {
-        if waitingWindow == nil { buildWaitingWindow() }
-        guard let win = waitingWindow else { return }
-        let line = names.count == 1
-            ? "\(names[0]) は応答待ち！"
-            : "\(names.count)件 応答待ち：\(names.joined(separator: "、"))"
-        waitingLabel?.stringValue = line
-
-        // Custom character image, or a friendly default kaomoji.
-        if let p = State.popupImage, let img = NSImage(contentsOfFile: p) {
-            waitingImageView?.image = img
-            waitingImageView?.isHidden = false
-            waitingFace?.isHidden = true // the image stands in for the default face
-        } else {
-            waitingImageView?.isHidden = true
-            waitingFace?.isHidden = false
-        }
-
-        if let scr = NSScreen.main {
-            let m: CGFloat = 24
-            let f = win.frame
-            win.setFrameOrigin(NSPoint(x: scr.visibleFrame.maxX - f.width - m,
-                                       y: scr.visibleFrame.minY + m))
+        // NSScreen.main is nil for a background app with no focused window — fall
+        // back to the first screen so the cards always have somewhere to land.
+        guard let scr = NSScreen.main ?? NSScreen.screens.first else { return }
+        let margin: CGFloat = 24, gap: CGFloat = 12, h: CGFloat = 96, w: CGFloat = 300
+        for (i, p) in visible.prefix(6).enumerated() {
+            let card: PopupCard
+            if let existing = waitingCards[p.tty] {
+                card = existing
+            } else {
+                let c = PopupCard()
+                let tty = p.tty
+                c.onClick = { [weak self] in
+                    self?.dismissedTtys.insert(tty)
+                    self?.waitingCards[tty]?.window.orderOut(nil)
+                    self?.waitingCards.removeValue(forKey: tty)
+                }
+                waitingCards[p.tty] = c
+                card = c
+            }
+            // Image priority: the voice's portrait (head-cropped) > a global popup
+            // image > the default kaomoji (image == nil).
+            var img: NSImage?
+            if let pp = p.portrait { img = faceCrop(path: pp) }
+            else if let gp = State.popupImage { img = NSImage(contentsOfFile: gp) }
+            card.update(text: "\(p.name) は応答待ち！", image: img)
+            card.window.setFrameOrigin(NSPoint(x: scr.visibleFrame.maxX - w - margin,
+                                               y: scr.visibleFrame.minY + margin + CGFloat(i) * (h + gap)))
+            card.window.orderFront(nil)
         }
     }
 
-    private func hideWaitingPopup() {
-        guard let w = waitingWindow else { return }
-        w.orderOut(nil)
-        waitingSig = ""
-    }
-
-    @objc private func waitingClicked() {
-        waitingDismissedSig = waitingSig // don't reshow this exact set
-        hideWaitingPopup()
-    }
-
-    private func buildWaitingWindow() {
-        let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 96),
-                         styleMask: [.borderless], backing: .buffered, defer: false)
-        w.isOpaque = false
-        w.backgroundColor = .clear
-        w.level = .floating
-        w.hasShadow = true
-        w.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
-        w.ignoresMouseEvents = false
-
-        let card = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 96))
-        card.wantsLayer = true
-        card.layer?.cornerRadius = 16
-        card.layer?.backgroundColor = NSColor(calibratedWhite: 0.10, alpha: 0.95).cgColor
-        card.layer?.borderWidth = 2
-        card.layer?.borderColor = NSColor.systemYellow.withAlphaComponent(0.9).cgColor
-
-        let iv = NSImageView(frame: NSRect(x: 12, y: 12, width: 72, height: 72))
-        iv.imageScaling = .scaleProportionallyUpOrDown
-        iv.isHidden = true
-        card.addSubview(iv)
-        waitingImageView = iv
-
-        // A friendly default "character" — a kaomoji — sits behind the image slot
-        // so there's always a face even without a custom image.
-        let face = NSTextField(labelWithString: "(｡･ω･｡)ﾉ")
-        face.frame = NSRect(x: 8, y: 30, width: 80, height: 36)
-        face.alignment = .center
-        face.font = .systemFont(ofSize: 17, weight: .semibold)
-        face.textColor = .systemYellow
-        card.addSubview(face, positioned: .below, relativeTo: iv)
-        waitingFace = face
-
-        let badge = NSTextField(labelWithString: "🟡 応答待ち")
-        badge.frame = NSRect(x: 96, y: 56, width: 196, height: 22)
-        badge.font = .systemFont(ofSize: 13, weight: .bold)
-        badge.textColor = .systemYellow
-        badge.backgroundColor = .clear
-        badge.isBordered = false
-        card.addSubview(badge)
-
-        let label = NSTextField(wrappingLabelWithString: "")
-        label.frame = NSRect(x: 96, y: 12, width: 196, height: 44)
-        label.font = .systemFont(ofSize: 15, weight: .semibold)
-        label.textColor = .white
-        label.maximumNumberOfLines = 2
-        label.backgroundColor = .clear
-        label.isBordered = false
-        card.addSubview(label)
-        waitingLabel = label
-
-        card.addGestureRecognizer(NSClickGestureRecognizer(target: self, action: #selector(waitingClicked)))
-        w.contentView = card
-        waitingWindow = w
+    // Crop a full-body VOICEVOX portrait down to the head (top-center) so it
+    // reads at card size. Heuristic fractions that fit the standard 立ち絵.
+    private func faceCrop(path: String) -> NSImage? {
+        guard let src = NSImage(contentsOfFile: path),
+              let cg = src.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
+        let W = CGFloat(cg.width), H = CGFloat(cg.height)
+        let rect = CGRect(x: W * 0.18, y: H * 0.03, width: W * 0.64, height: H * 0.30)
+        guard let cropped = cg.cropping(to: rect) else { return src }
+        return NSImage(cgImage: cropped, size: NSSize(width: rect.width, height: rect.height))
     }
 
     private func toggle() { State.setMuted(!State.isMuted); render() }
@@ -372,6 +402,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // loop swallows the keystrokes. So naming a pane opens a normal modal dialog
     // (NSAlert with a text field), which takes keyboard focus properly. Empty =>
     // clear (the pane falls back to its label / the speakLabel default).
+    // Edit the popup "ignore" reason-keywords from the menu (a modal text field,
+    // since menus can't host an editable field). Empty clears the filter.
+    @objc private func promptPopupIgnore() {
+        let alert = NSAlert()
+        alert.messageText = "無視ワード"
+        alert.informativeText = "待ち理由メッセージにこの語を含む通知はポップアップしません（カンマ区切り・空欄で解除）"
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
+        field.stringValue = State.popupIgnoreRaw
+        field.placeholderString = "例: subagent,task"
+        alert.accessoryView = field
+        alert.addButton(withTitle: "保存")
+        alert.addButton(withTitle: "キャンセル")
+        NSApp.activate(ignoringOtherApps: true)
+        alert.window.initialFirstResponder = field
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let v = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        State.cli(["popup", "ignore", v.isEmpty ? "clear" : v])
+    }
+
     @objc private func promptPaneName(_ sender: NSMenuItem) {
         guard let info = sender.representedObject as? [String], let tty = info.first else { return }
         let current = info.count > 1 ? info[1] : ""
@@ -592,13 +641,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         menu.addItem(.separator())
-        // Waiting-for-input character popup: on/off (set the character image with
-        // `ai-notify popup image <path>`).
-        let popupItem = NSMenuItem(title: "応答待ちポップアップ", action: #selector(runItem(_:)), keyEquivalent: "")
-        popupItem.target = self
-        popupItem.representedObject = ["popup", "toggle"]
-        popupItem.state = State.popupEnabled ? .on : .off
-        menu.addItem(popupItem)
+        // Waiting-for-input popup: enable + when-to-show settings, all in a submenu.
+        let popupParent = NSMenuItem(title: "応答待ちポップアップ", action: nil, keyEquivalent: "")
+        let popupSub = NSMenu()
+        let onItem = NSMenuItem(title: "有効にする", action: #selector(runItem(_:)), keyEquivalent: "")
+        onItem.target = self
+        onItem.representedObject = ["popup", "toggle"]
+        onItem.state = State.popupEnabled ? .on : .off
+        popupSub.addItem(onItem)
+        popupSub.addItem(.separator())
+        // Threshold: only show after waiting this long.
+        popupSub.addItem(disabledHeader("出すまでの待ち時間"))
+        let curDelay = State.popupDelaySec
+        for (sec, title) in [(0, "即時"), (5, "5秒"), (10, "10秒"), (15, "15秒"), (30, "30秒"), (60, "60秒")] {
+            let it = NSMenuItem(title: title, action: #selector(runItem(_:)), keyEquivalent: "")
+            it.target = self
+            it.representedObject = ["popup", "delay", String(sec)]
+            it.state = (curDelay == sec) ? .on : .off
+            popupSub.addItem(it)
+        }
+        popupSub.addItem(.separator())
+        // Reason filter + portrait sync.
+        let ig = State.popupIgnoreRaw
+        let ignoreItem = NSMenuItem(title: ig.isEmpty ? "無視ワードを設定…" : "無視ワード: \(ig)", action: #selector(promptPopupIgnore), keyEquivalent: "")
+        ignoreItem.target = self
+        popupSub.addItem(ignoreItem)
+        let portItem = NSMenuItem(title: "ボイスの立ち絵を取得（VOICEVOX）", action: #selector(runItem(_:)), keyEquivalent: "")
+        portItem.target = self
+        portItem.representedObject = ["popup", "portraits"]
+        popupSub.addItem(portItem)
+        popupParent.submenu = popupSub
+        menu.addItem(popupParent)
 
         menu.addItem(.separator())
         let quitItem = NSMenuItem(title: "ai-notify を終了", action: #selector(quit), keyEquivalent: "q")
