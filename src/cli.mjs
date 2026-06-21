@@ -534,7 +534,7 @@ const cmds = {
     const [name, voiceArg, volArg] = pos;
     if (!name || name === 'clear' || name === 'reset') {
       updatePaneSetting(tty, { speakName: null, tts: null, voice: null, speaker: null, volume: null });
-      process.stdout.write('\u001b]0;\u0007'); // clear the tab title (best-effort)
+      process.stdout.write('\u001b]0;\u0007\u001b]2;\u0007'); // clear tab title via OSC 0 + 2 (best-effort)
       return log(`✓ pane reset (${tty})`);
     }
 
@@ -580,7 +580,7 @@ const cmds = {
     // Rename this terminal tab/window (best-effort — a shell that rewrites the
     // title on each prompt may override it after you return to the prompt).
     const tab = tabTitle || name;
-    process.stdout.write(`\u001b]0;${tab}\u0007`);
+    process.stdout.write(`\u001b]0;${tab}\u0007\u001b]2;${tab}\u0007`);
 
     const bits = [`name ${name}`];
     if (voiceLabel) bits.push(`voice ${voiceLabel}`);

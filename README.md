@@ -76,6 +76,8 @@ ai-notify use clear                           # reset this pane
 
 `voice` is a `say` name/number (`Kyoko`, `3`), a VOICEVOX **character name** (`ずんだもん`), or `vv<id>` (`vv3`). `--tab` sets a different terminal tab title from the spoken name.
 
+> Tab renaming is best-effort — it sends the standard title escape (OSC 0 + 2), which **Terminal.app** and **iTerm2** honor. **JetBrains IDEs** (WebStorm/IntelliJ) honor it only with the **Reworked terminal** (default in 2025.2+); some versions reset the name when you re-activate the tab ([IDEA-277846](https://youtrack.jetbrains.com/issue/IDEA-277846/Support-changing-terminal-tab-title-by-escape-sequences)). A shell that rewrites the title every prompt can also override it. The spoken name and voice always apply regardless.
+
 Per-window overrides — `export` these in a terminal *before* launching the agent:
 
 ```sh

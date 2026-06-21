@@ -75,6 +75,8 @@ ai-notify use clear                           # このペインをリセット
 
 `声` は `say` の名前/番号（`Kyoko`・`3`）、VOICEVOX の**キャラ名**（`ずんだもん`）、`vv<id>`（`vv3`）が使えます。`--tab` で読み上げ名と別のタブ名を付けられます。
 
+> タブ名の変更はベストエフォートで、標準のタイトルエスケープ（OSC 0＋2）を送ります。**Terminal.app** と **iTerm2** は反映します。**JetBrains 系（WebStorm/IntelliJ）は新ターミナル（Reworked・2025.2 以降が既定）でのみ反映**し、バージョンによってはタブを再アクティブにすると名前が戻ります（[IDEA-277846](https://youtrack.jetbrains.com/issue/IDEA-277846/Support-changing-terminal-tab-title-by-escape-sequences)）。プロンプト毎にタイトルを書き換えるシェル設定でも上書きされます。読み上げ名と声は端末に関係なく常に有効です。
+
 ペイン別の上書き — エージェントを起動する**前**に、その端末で `export` する：
 
 ```sh
