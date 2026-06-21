@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 import { execSync, execFileSync } from 'node:child_process';
 import { providers, byId } from './providers/index.mjs';
 import { emit } from './notify.mjs';
-import { deriveLabel, cliInvocation, isEphemeralInstall } from './util.mjs';
+import { deriveLabel, cliInvocation, isEphemeralInstall, controllingTty } from './util.mjs';
 import { curatedVoices, resolveVoice, previewVoice } from './voices.mjs';
 import * as menubar from './menubar.mjs';
 import { translate } from './translate.mjs';
@@ -506,6 +506,62 @@ const cmds = {
     log(`pane ${tty}: name ${arg}`);
   },
 
+  // One-shot per-pane setup, run INSIDE the pane: set its spoken name, voice,
+  // and volume — and rename the terminal tab — in a single command, instead of
+  // doing each from the menu bar. Keyed by this shell's tty (which the agent's
+  // hook resolves to as well), so it just works for the agent running here.
+  //   use <name> [voice] [volume]   |   use clear
+  // voice: a system voice name/number (e.g. Kyoko, 3) or VOICEVOX as vv<id> (vv3).
+  use() {
+    const [name, voiceArg, volArg] = positionals;
+    const tty = controllingTty();
+    if (!tty) {
+      console.error('`ai-notify use` must run inside a terminal pane (no controlling tty found).');
+      process.exit(1);
+    }
+    if (!name || name === 'clear' || name === 'reset') {
+      updatePaneSetting(tty, { speakName: null, tts: null, voice: null, speaker: null, volume: null });
+      process.stdout.write('\u001b]0;\u0007'); // clear the tab title (best-effort)
+      return log(`✓ pane reset (${tty})`);
+    }
+
+    const patch = { speakName: name };
+    let voiceLabel = '';
+    if (voiceArg !== undefined) {
+      const vv = /^(?:vv|voicevox):?(\d+)$/i.exec(voiceArg);
+      if (vv) {
+        patch.tts = 'voicevox';
+        patch.speaker = Number(vv[1]);
+        patch.voice = null;
+        voiceLabel = `VOICEVOX ${vv[1]}`;
+      } else {
+        const picked = resolveVoice(voiceArg, curatedVoices(10));
+        if (!picked) {
+          console.error(`unknown voice: ${voiceArg}   (names/numbers: ai-notify voice;  VOICEVOX: vv<id>)`);
+          process.exit(1);
+        }
+        patch.tts = 'say';
+        patch.voice = picked;
+        patch.speaker = null;
+        voiceLabel = picked;
+      }
+    }
+    if (volArg !== undefined) {
+      const v = Number(volArg);
+      if (Number.isFinite(v)) patch.volume = Math.min(2, Math.max(0, v));
+    }
+
+    updatePaneSetting(tty, patch);
+    // Rename this terminal tab/window to the pane name (best-effort — a shell
+    // that rewrites the title on each prompt may override it after you return).
+    process.stdout.write(`\u001b]0;${name}\u0007`);
+
+    const bits = [`name ${name}`];
+    if (voiceLabel) bits.push(`voice ${voiceLabel}`);
+    if (patch.volume !== undefined) bits.push(`volume ${patch.volume}`);
+    log(`✓ ${bits.join('  ·  ')}  ·  tab renamed`);
+  },
+
   // Get/set the VOICEVOX base prosody (the normal-tone scales the menu bar
   // sliders drive). With no args, prints the current values as JSON.
   //   voice-prosody [speed|pitch|intonation <value> | reset]
@@ -710,6 +766,7 @@ function printHelp() {
 Usage:
   ai-notify init [--dry-run] [--only claude,codex]   wire detected agents
   ai-notify uninstall [--only ...]                   remove wiring
+  ai-notify use <name> [voice] [vol]                 name THIS pane + set its voice + rename the tab, at once
   ai-notify toggle | on | off | status               control the mute switch
   ai-notify volume [0.0-2.0]                          get/set output volume
   ai-notify voice [number|name|preview|default]      pick the spoken voice

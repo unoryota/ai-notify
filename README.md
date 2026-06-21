@@ -52,6 +52,7 @@ Adding another agent (aider, opencode, amp, …) is a small PR: drop a file in `
 
 ```sh
 ai-notify init [--dry-run] [--only claude,codex]   # wire detected agents
+ai-notify use <name> [voice] [vol]                 # set THIS pane's name + voice + tab title, in one go
 ai-notify toggle | on | off | status               # the mute switch
 ai-notify volume [0.0-2.0]                          # get/set output volume
 ai-notify voice [number|name|preview|default]      # pick the spoken voice
@@ -61,6 +62,15 @@ ai-notify translate [on <lang>|off|test]           # speak agent text in your la
 ai-notify menubar [install|uninstall|status]       # native menu bar app (macOS)
 ai-notify doctor                                   # check deps & wiring
 ai-notify uninstall                                # cleanly remove wiring
+```
+
+**Set up a pane in one command.** Run this *in* the terminal where the agent runs — it names the pane (spoken in the read-out), picks its voice, sets its volume, and renames the terminal tab, all at once. No menu hopping:
+
+```sh
+ai-notify use api Kyoko        # name "api" + voice Kyoko + tab → "api"
+ai-notify use web Eddy 0.8     # + volume 0.8
+ai-notify use infra vv3        # VOICEVOX speaker 3 (e.g. ずんだもん)
+ai-notify use clear            # reset this pane
 ```
 
 Per-window overrides — `export` these in a terminal *before* launching the agent:
