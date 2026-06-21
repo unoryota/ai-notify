@@ -479,6 +479,24 @@ const cmds = {
     log(`pane ${tty}: tsundere level ${v}`);
   },
 
+  // Name a specific pane in the spoken read-out (set from the menu bar), or
+  // `clear` to fall back to the label / speakLabel default.
+  //   name-pane <tty> <name|clear>
+  'name-pane'() {
+    const [tty, ...rest] = positionals;
+    const arg = rest.join(' ').trim(); // a name may contain spaces
+    if (!tty || arg === '') {
+      console.error('usage: name-pane <tty> <name|clear>');
+      process.exit(1);
+    }
+    if (arg === 'clear') {
+      updatePaneSetting(tty, { speakName: null });
+      return log(`pane ${tty}: name cleared`);
+    }
+    updatePaneSetting(tty, { speakName: arg });
+    log(`pane ${tty}: name ${arg}`);
+  },
+
   // Get/set the VOICEVOX base prosody (the normal-tone scales the menu bar
   // sliders drive). With no args, prints the current values as JSON.
   //   voice-prosody [speed|pitch|intonation <value> | reset]
@@ -534,6 +552,7 @@ const cmds = {
         tty,
         label: recorded.get(tty) || tty.replace('/dev/', ''),
         current: labelFor(s.tts ? s : null),
+        speakName: typeof s.speakName === 'string' ? s.speakName : '',
         volume: typeof s.volume === 'number' ? s.volume : globalVol,
         volumeSet: typeof s.volume === 'number',
         tsundere: typeof s.tsundere === 'number' ? s.tsundere : tsLevel,

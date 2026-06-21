@@ -175,6 +175,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func paneVolumeChanged(_ s: NSSlider) {
         if let tty = s.identifier?.rawValue { State.cli(["volume-pane", tty, String(format: "%.2f", s.doubleValue)]) }
     }
+    // Editing a text field *inside* an NSMenu is unreliable — the menu's tracking
+    // loop swallows the keystrokes. So naming a pane opens a normal modal dialog
+    // (NSAlert with a text field), which takes keyboard focus properly. Empty =>
+    // clear (the pane falls back to its label / the speakLabel default).
+    @objc private func promptPaneName(_ sender: NSMenuItem) {
+        guard let info = sender.representedObject as? [String], let tty = info.first else { return }
+        let current = info.count > 1 ? info[1] : ""
+        let alert = NSAlert()
+        alert.messageText = "読み上げ名"
+        alert.informativeText = "このペインを通知で読み上げる名前（空欄で解除）"
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
+        field.stringValue = current
+        field.placeholderString = "例: バックエンド"
+        alert.accessoryView = field
+        alert.addButton(withTitle: "保存")
+        alert.addButton(withTitle: "キャンセル")
+        NSApp.activate(ignoringOtherApps: true)
+        alert.window.initialFirstResponder = field
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let name = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        State.cli(["name-pane", tty, name.isEmpty ? "clear" : name])
+    }
     // identifier carries the prosody key (speed | pitch | intonation).
     @objc private func prosodyChanged(_ s: NSSlider) {
         if let key = s.identifier?.rawValue { State.cli(["voice-prosody", key, String(format: "%.3f", s.doubleValue)]) }
@@ -323,8 +345,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 guard let tty = p["tty"] as? String else { continue }
                 let label = p["label"] as? String ?? tty
                 let cur = p["current"] as? String
-                let item = NSMenuItem(title: cur != nil ? "\(label) — \(cur!)" : label, action: nil, keyEquivalent: "")
+                let pname = p["speakName"] as? String ?? ""
+                // Parent row shows at a glance WHO the pane is (its custom 🗣 name,
+                // or its label/tty) AND which 🔊 voice it uses (omitted when it just
+                // follows the global voice). Naming a pane must not hide the voice —
+                // surfacing the per-pane voice is what this list is for.
+                let who = pname.isEmpty ? label : "🗣 \(pname)"
+                let voiceTag = cur != nil ? " — 🔊 \(cur!)" : ""
+                let item = NSMenuItem(title: who + voiceTag, action: nil, keyEquivalent: "")
                 let sub = NSMenu()
+                // Per-pane spoken name — opens a dialog (menu fields can't type).
+                sub.addItem(disabledHeader("読み上げ名"))
+                let nameItem = NSMenuItem(
+                    title: pname.isEmpty ? "（クリックして設定…）" : "「\(pname)」を変更…",
+                    action: #selector(promptPaneName(_:)), keyEquivalent: ""
+                )
+                nameItem.target = self
+                nameItem.representedObject = [tty, pname]
+                sub.addItem(nameItem)
+                if !pname.isEmpty {
+                    let clr = NSMenuItem(title: "読み上げ名を解除", action: #selector(runItem(_:)), keyEquivalent: "")
+                    clr.target = self; clr.representedObject = ["name-pane", tty, "clear"]
+                    sub.addItem(clr)
+                }
+                sub.addItem(.separator())
                 // Per-pane volume.
                 let pv = (p["volume"] as? Double) ?? State.volume
                 sub.addItem(disabledHeader("音量"))

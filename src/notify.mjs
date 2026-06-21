@@ -176,19 +176,21 @@ export const emit = ({ provider = 'default', event = 'done', label = '', message
   if (!message) spokenBody = fromTemplate || fallback;
   else if (config.speakAgentMessage) spokenBody = fullBody;
   else spokenBody = shortenForSpeech(fullBody, config.speakMaxChars || 40);
-  // The task gist already tells you which pane; the label (often the working
-  // dir) is just slow filler. Prefix it only if explicitly enabled.
-  const speakText = config.speakLabel === true && label ? `${label}、${spokenBody}` : spokenBody;
-
-  // Per-pane voice: remember this pane (so the menu bar can list it) and apply
-  // any voice assigned to it. Precedence (most specific first):
-  //   $AI_NOTIFY_* env  — set in the pane's shell
-  //   this pane's pick  — assigned from the menu bar (keyed by tty)
-  //   provider / global — config defaults
+  // Per-pane settings (voice / volume / tsundere / name), keyed by tty. Read
+  // here — before the read-out is assembled — so the spoken text can use this
+  // pane's assigned name. Also remember the pane so the menu bar can list it.
   const tty = controllingTty();
   recordPane(tty, label);
   setPaneWaiting(tty, event === 'waiting'); // waiting -> yellow menu bar status; done clears it
   const pane = readPaneSetting(tty);
+
+  // Name this pane in the read-out. An explicit per-pane name (set from the menu
+  // bar) is ALWAYS spoken; the auto-derived label (often just the working dir)
+  // is prefixed only when speakLabel is on — it's slow filler otherwise.
+  const spokenName = pane.speakName || (config.speakLabel === true && label ? label : '');
+  const speakText = spokenName ? `${spokenName}、${spokenBody}` : spokenBody;
+
+  // Per-pane voice (precedence: $AI_NOTIFY_* env > this pane's pick > global).
   const tts = pane.tts || config.tts;
   const voice = process.env.AI_NOTIFY_VOICE || pane.voice || p.voice || config.voice;
   const speaker = process.env.AI_NOTIFY_VOICEVOX_SPEAKER || pane.speaker || config.voicevox?.speaker;
@@ -231,7 +233,7 @@ export const emit = ({ provider = 'default', event = 'done', label = '', message
     speakTone = tsundere.axisFor(eff);
     outVol = Math.min(2, Math.max(0, vol * tsundere.volumeMul(tier, ts.volumeBoost !== false)));
     outText = tsundere.wrap(spokenBody, eff, tier, ts.lang || 'ja', nextCounter('tsundere'));
-    if (config.speakLabel === true && label) outText = `${label}、${outText}`;
+    if (spokenName) outText = `${spokenName}、${outText}`;
     if (tts === 'voicevox') {
       const sm = ts.styleMap || voicevox.resolveStyles(outSpeaker, config.voicevox?.url);
       const axis = tsundere.axisFor(eff);
