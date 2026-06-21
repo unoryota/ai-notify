@@ -15,6 +15,7 @@
     "menubar/README.md",
     "menubar/dist",
     "README.md",
+    "README.ja.md",
     "LICENSE"
   ],
   "scripts": {

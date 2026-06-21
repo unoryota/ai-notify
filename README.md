@@ -1,8 +1,10 @@
 # ai-notify
 
+**English** · [日本語](README.ja.md)
+
 **Know the moment your terminal AI agent needs you** — a sound, a spoken read-out, and a desktop banner the instant Claude Code, Codex, or another agent finishes a turn or asks for input. One mute switch covers **all of them, across every terminal**. No daemon, no background process.
 
-![ai-notify demo](https://raw.githubusercontent.com/unoryota/ai-notify/main/assets/main.gif)
+![ai-notify demo](https://raw.githubusercontent.com/unoryota/ai-notify/main/assets/hero-en.gif)
 
 ```sh
 npm i -g ai-notify
@@ -18,10 +20,6 @@ Plenty of agents go quiet for minutes. ai-notify pulls you back at the right mom
 - 📝 **It tells you *what* was done.** The "done" notification summarizes the agent's last reply (from the transcript), not just "finished".
 - 🔕 **One switch mutes everything.** Every agent in every terminal reads the same flag — one tap silences them all for a meeting.
 - 🔔 **A real menu bar bell, built in.** `ai-notify menubar install` — no Hammerspoon/SwiftBar required.
-
-> ### 日本語
-> 複数のAIエージェント（Claude Code / Codex …）を**並列で動かすと、どのターミナルの通知か分からない**——を解決する通知ツール。
-> **ペインごとに声を変えられる**（VOICEVOXのキャラ声も）／**英語の出力を日本語に翻訳して読み上げ**／**完了通知に作業内容の要約**／**1タップで全部ミュート**（MTG用）／**メニューバーのベルも内蔵**。
 
 ## Supported agents
 
@@ -75,7 +73,11 @@ No third-party app needed. Prefer something else? There are drop-in recipes for 
 
 ## 🎙️ VOICEVOX character voices
 
-Speak your notifications in [VOICEVOX](https://voicevox.hiroshiba.jp/) character voices (free, local, offline). Run the VOICEVOX app, then:
+Optionally speak your notifications in [VOICEVOX](https://voicevox.hiroshiba.jp/) character voices (e.g. ずんだもん) — free, local, offline.
+
+> **Needs the VOICEVOX app installed and running.** ai-notify calls its local engine; it does not bundle the voices. Without it, ai-notify just uses your OS voice (Samantha, Kyoko, …) — no setup required.
+
+Run the VOICEVOX app, then:
 
 ```sh
 ai-notify voicevox speakers     # list available characters + ids
