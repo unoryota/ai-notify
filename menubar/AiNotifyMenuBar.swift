@@ -401,7 +401,7 @@ final class SettingsWindowController: NSObject {
             SettingsRow(title: "ツンデレ", asCheckbox: true, on: (tsun?["enabled"] as? Bool) ?? false, lo: 0, hi: 1, value: (tsun?["level"] as? Double) ?? 0.5, fill: pink,
                         onToggle: { State.cli(["tsundere", "toggle"]) },
                         onChange: { State.cli(["tsundere", "level", String(format: "%.2f", $0)]) }),
-            SettingsRow(title: "戦争", asCheckbox: true, on: (warj?["enabled"] as? Bool) ?? false, lo: 0, hi: 1, value: (warj?["level"] as? Double) ?? 0.5, fill: red,
+            SettingsRow(title: "アドレナリン", asCheckbox: true, on: (warj?["enabled"] as? Bool) ?? false, lo: 0, hi: 1, value: (warj?["level"] as? Double) ?? 0.5, fill: red,
                         onToggle: { State.cli(["war", "toggle"]) },
                         onChange: { State.cli(["war", "level", String(format: "%.2f", $0)]) }),
             SettingsRow(title: "速さ", asCheckbox: false, on: false, lo: slo, hi: shi, value: (pr["speed"] as? Double) ?? 1, fill: blue,
@@ -412,7 +412,7 @@ final class SettingsWindowController: NSObject {
                         onChange: { State.cli(["voice-prosody", "intonation", String(format: "%.3f", $0)]) }),
         ]
         var y = 264
-        let header = NSTextField(labelWithString: "ツンデレ/戦争は 0=デレ・平時 〜 1=ツン・危機")
+        let header = NSTextField(labelWithString: "ツンデレ/アドレナリンは 0=デレ・平時 〜 1=ツン・危機")
         header.frame = NSRect(x: 16, y: 286, width: 440, height: 16)
         header.font = .systemFont(ofSize: 11); header.textColor = .secondaryLabelColor
         content.addSubview(header)
@@ -736,7 +736,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // the menu height never jumps.
     private func tsundereToggleRow(on: Bool) -> NSMenuItem {
         let row = NSView(frame: NSRect(x: 0, y: 0, width: 220, height: 24))
-        let btn = NSButton(checkboxWithTitle: "ツンデレモード", target: self, action: #selector(tsundereToggled(_:)))
+        let btn = NSButton(checkboxWithTitle: "ツンデレ", target: self, action: #selector(tsundereToggled(_:)))
         btn.frame = NSRect(x: 12, y: 2, width: 196, height: 20)
         btn.state = on ? .on : .off
         row.addSubview(btn)
@@ -748,7 +748,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // tsundere; the tsundere level flavors it.
     private func warToggleRow(on: Bool) -> NSMenuItem {
         let row = NSView(frame: NSRect(x: 0, y: 0, width: 220, height: 24))
-        let btn = NSButton(checkboxWithTitle: "戦争モード", target: self, action: #selector(warToggled(_:)))
+        let btn = NSButton(checkboxWithTitle: "アドレナリン", target: self, action: #selector(warToggled(_:)))
         btn.frame = NSRect(x: 12, y: 2, width: 196, height: 20)
         btn.state = on ? .on : .off
         row.addSubview(btn)
@@ -756,25 +756,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return item
     }
 
-    private func warRow(value: Double) -> NSMenuItem {
-        let row = NSView(frame: NSRect(x: 0, y: 0, width: 220, height: 26))
-        let left = NSTextField(labelWithString: "平時")
-        left.frame = NSRect(x: 12, y: 5, width: 30, height: 16)
-        left.font = .systemFont(ofSize: 10); left.textColor = .secondaryLabelColor
-        let slider = NSSlider(value: value, minValue: 0, maxValue: 1, target: self, action: #selector(warLevelChanged(_:)))
-        slider.frame = NSRect(x: 46, y: 3, width: 128, height: 20)
+    // A labeled blue level slider (0–1), laid out like the 速さ/高さ/抑揚 rows so
+    // ツンデレ / アドレナリン sit with them, aligned and in the same blue.
+    private func levelRow(label: String, value: Double, action: Selector) -> NSMenuItem {
+        let row = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
+        let cap = NSTextField(labelWithString: label)
+        cap.frame = NSRect(x: 12, y: 4, width: 64, height: 16)
+        cap.font = .systemFont(ofSize: 11); cap.textColor = .secondaryLabelColor
+        let slider = NSSlider(frame: NSRect(x: 78, y: 3, width: 146, height: 20))
+        slider.cell = FilledSliderCell() // guaranteed blue fill
+        slider.minValue = 0; slider.maxValue = 1; slider.doubleValue = value
+        slider.target = self; slider.action = action
         slider.isContinuous = false
-        slider.trackFillColor = NSColor(srgbRed: 0.85, green: 0.2, blue: 0.15, alpha: 1) // war red
-        let right = NSTextField(labelWithString: "危機")
-        right.frame = NSRect(x: 178, y: 5, width: 30, height: 16)
-        right.font = .systemFont(ofSize: 10); right.textColor = .secondaryLabelColor
-        row.addSubview(left); row.addSubview(slider); row.addSubview(right)
+        row.addSubview(cap); row.addSubview(slider)
         let item = NSMenuItem(); item.view = row
         return item
     }
 
     @objc private func warToggled(_ b: NSButton) { State.cli(["war", "toggle"]) }
     @objc private func warLevelChanged(_ s: NSSlider) { State.cli(["war", "level", String(format: "%.2f", s.doubleValue)]) }
+    @objc private func tsundereLevelDirect(_ s: NSSlider) { State.cli(["tsundere", "level", String(format: "%.2f", s.doubleValue)]) }
 
     // representedObject is the full CLI arg array to run.
     @objc private func runItem(_ item: NSMenuItem) {
@@ -802,16 +803,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Tsundere mode: checkbox toggle + ツン⇄デレ baseline slider. Both live in
         // view rows and are always mounted, so toggling never closes the menu nor
         // shifts its height.
+        // Mode toggles (checkboxes only). Their level sliders live below, with the
+        // 速さ/高さ/抑揚 sliders, so all the blue adjustment sliders are grouped.
         let tsun = json?["tsundere"] as? [String: Any]
-        let tsunOn = (tsun?["enabled"] as? Bool) ?? false
         let tsunLevel = (tsun?["level"] as? Double) ?? 0.5
-        menu.addItem(tsundereToggleRow(on: tsunOn))
-        menu.addItem(tsundereRow(value: tsunLevel))
-
-        // War mode: checkbox + 平時⇄危機 slider (a separate read-out skin).
         let warJson = json?["war"] as? [String: Any]
+        let warLevel = (warJson?["level"] as? Double) ?? 0.5
+        menu.addItem(tsundereToggleRow(on: (tsun?["enabled"] as? Bool) ?? false))
         menu.addItem(warToggleRow(on: (warJson?["enabled"] as? Bool) ?? false))
-        menu.addItem(warRow(value: (warJson?["level"] as? Double) ?? 0.5))
         menu.addItem(.separator())
 
         // VOICEVOX base prosody (speed / pitch / intonation) — only when VOICEVOX
@@ -835,8 +834,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 let v = (pr[key] as? Double) ?? dflt
                 menu.addItem(prosodyRow(label: label, value: v, lo: lo, hi: hi, key: key))
             }
-            menu.addItem(.separator())
         }
+        // ツンデレ (好感度) and アドレナリン (強度) levels, below 速さ/高さ/抑揚, in blue.
+        menu.addItem(levelRow(label: "ツンデレ", value: tsunLevel, action: #selector(tsundereLevelDirect(_:))))
+        menu.addItem(levelRow(label: "アドレナリン", value: warLevel, action: #selector(warLevelChanged(_:))))
+        menu.addItem(.separator())
 
         if voices.isEmpty {
             menu.addItem(disabledHeader("(声の一覧を取得できません)"))
