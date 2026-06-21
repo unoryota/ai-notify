@@ -2,7 +2,7 @@
 
 **Know the moment your terminal AI agent needs you** — a sound, a spoken read-out, and a desktop banner the instant Claude Code, Codex, or another agent finishes a turn or asks for input. One mute switch covers **all of them, across every terminal**. No daemon, no background process.
 
-![ai-notify demo](https://raw.githubusercontent.com/unoryota/ai-notify/main/assets/hero.gif)
+![ai-notify demo](https://raw.githubusercontent.com/unoryota/ai-notify/main/assets/cover.gif)
 
 ```sh
 npm i -g ai-notify
