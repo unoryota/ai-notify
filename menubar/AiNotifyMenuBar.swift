@@ -158,6 +158,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // The "waiting for input" character popup.
     private var waitingWindow: NSWindow?
     private var waitingImageView: NSImageView?
+    private var waitingFace: NSTextField?
     private var waitingLabel: NSTextField?
     private var waitingSig = ""        // current panes signature, to avoid needless redraws
     private var waitingDismissedSig = "" // a signature the user clicked away; don't reshow it
@@ -272,8 +273,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let p = State.popupImage, let img = NSImage(contentsOfFile: p) {
             waitingImageView?.image = img
             waitingImageView?.isHidden = false
+            waitingFace?.isHidden = true // the image stands in for the default face
         } else {
             waitingImageView?.isHidden = true
+            waitingFace?.isHidden = false
         }
 
         if let scr = NSScreen.main {
@@ -326,6 +329,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         face.font = .systemFont(ofSize: 17, weight: .semibold)
         face.textColor = .systemYellow
         card.addSubview(face, positioned: .below, relativeTo: iv)
+        waitingFace = face
 
         let badge = NSTextField(labelWithString: "🟡 応答待ち")
         badge.frame = NSRect(x: 96, y: 56, width: 196, height: 22)
