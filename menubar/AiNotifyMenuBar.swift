@@ -113,6 +113,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         render()
         timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in self?.render() }
+
+        var shotPath = ProcessInfo.processInfo.environment["AI_NOTIFY_SHOT"]
+        let args = CommandLine.arguments
+        if let i = args.firstIndex(of: "--shot"), i + 1 < args.count { shotPath = args[i + 1] }
+        if let shot = shotPath, !shot.isEmpty {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in self?.captureMenuShot(shot) }
+        }
     }
 
     // Black/white waveform silhouette (template, auto-adapting) when idle; a
@@ -283,7 +290,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return it
     }
 
-    private func showMenu() {
+    private func buildMenu() -> NSMenu {
         let menu = NSMenu()
 
         // Parse menu-json once.
@@ -403,6 +410,59 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         quitItem.target = self
         menu.addItem(quitItem)
 
+        return menu
+    }
+
+    private func showMenu() {
+        let menu = buildMenu()
+        if let button = statusItem.button {
+            menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.height + 4), in: button)
+        }
+    }
+
+    // Screenshot mode (env AI_NOTIFY_SHOT=/path): open the menu, capture just its
+    // window via `screencapture`, then quit. Used to regenerate the README image
+    // headlessly — never reached in normal operation.
+    private var shotMenu: NSMenu?
+    func captureMenuShot(_ path: String) {
+        let menu = buildMenu()
+        shotMenu = menu
+        let pid = ProcessInfo.processInfo.processIdentifier
+        // An open NSMenu runs the runloop in event-tracking mode, so the timer
+        // must be registered in .common mode to fire while the menu is on screen.
+        // The menu window can take a few ticks to register with the window
+        // server, so poll for it rather than assuming a single fixed delay.
+        var ticks = 0
+        let t = Timer(timeInterval: 0.25, repeats: true) { [weak self] timer in
+            ticks += 1
+            let infos = (CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]]) ?? []
+            var bestId: CGWindowID = 0
+            var bestArea: CGFloat = 0
+            for w in infos {
+                guard (w[kCGWindowOwnerPID as String] as? pid_t) == pid else { continue }
+                guard let b = w[kCGWindowBounds as String] as? [String: CGFloat],
+                      let wd = b["Width"], let ht = b["Height"],
+                      let num = w[kCGWindowNumber as String] as? Int else { continue }
+                // The menu is far taller than the status-bar button window.
+                let area = wd * ht
+                if ht > 120 && area > bestArea { bestArea = area; bestId = CGWindowID(num) }
+            }
+            if bestId == 0 && ticks < 16 { return } // menu window not up yet — keep polling
+            if bestId != 0 {
+                // -l captures the window at native resolution and crops tight to
+                // it; -o drops the drop-shadow for a clean asset.
+                let p = Process()
+                p.launchPath = "/usr/sbin/screencapture"
+                p.arguments = ["-x", "-o", "-l", String(bestId), path]
+                try? p.run(); p.waitUntilExit()
+            }
+            timer.invalidate()
+            menu.cancelTracking()
+            self?.shotMenu = nil
+            NSApp.terminate(nil)
+        }
+        RunLoop.main.add(t, forMode: .common)
+        NSApp.activate(ignoringOtherApps: true) // a popUp only shows for the active app
         if let button = statusItem.button {
             menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.height + 4), in: button)
         }

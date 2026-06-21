@@ -34,6 +34,10 @@ Plenty of agents go quiet for minutes. ai-notify pulls you back at the right mom
 - 🔕 **One switch mutes everything.** Every agent in every terminal reads the same flag — one tap silences them all for a meeting.
 - 🔔 **A real menu bar bell, built in.** `ai-notify menubar install` — no Hammerspoon/SwiftBar required.
 
+A quick tour — translate an agent's reply, list VOICEVOX character voices, and the tsundere persona:
+
+![ai-notify features: translate, VOICEVOX voices, tsundere](https://raw.githubusercontent.com/unoryota/ai-notify/main/assets/features.gif)
+
 ## Supported agents
 
 | Agent | Status | How it's wired |
@@ -81,6 +85,14 @@ A monochrome waveform icon shows status by color (Adobe-style): plain when idle,
 
 - **Left-click** → menu: a **volume slider**, a **tsundere** toggle + デレ⇄ツン slider, the **voice list** (system + VOICEVOX), and **per-pane** controls. Each open terminal gets its own **spoken name** (read out so you know *which* pane finished), **voice**, and **volume** — the row shows each pane's voice at a glance.
 - **Right-click** → instant mute toggle.
+
+<p>
+  <img alt="ai-notify menu — volume, tsundere, and voice controls" src="https://raw.githubusercontent.com/unoryota/ai-notify/main/assets/menubar.png" width="250">
+  &nbsp;&nbsp;
+  <img alt="per-pane spoken name and voice, one row per terminal" src="https://raw.githubusercontent.com/unoryota/ai-notify/main/assets/menubar-panes.png" width="250">
+</p>
+
+*Left: global volume / tsundere / voices. Right: each pane named and given its own voice (🗣 バックエンド → Kyoko, infra → ずんだもん).*
 
 No third-party app needed. Prefer something else? There are drop-in recipes for **Hammerspoon**, **SwiftBar/xbar**, **Raycast**, and the built-in **macOS Shortcuts** in [`recipes/`](recipes/). `ai-notify status --icon` prints just `🔔`/`🔕` to embed in tmux / your prompt / Claude Code's status line.
 
