@@ -84,9 +84,23 @@ enum State {
         return t.isEmpty ? nil : t
     }
 
-    // Panes currently waiting for input, each with a display name (most-recent
-    // first). Name = the pane's spoken name, else its recorded label, else tty.
-    static func waitingPanes() -> [(tty: String, name: String)] {
+    // Numbers/strings for the popup threshold + reason filtering.
+    static var popupDelayMs: Double {
+        guard let s = try? String(contentsOfFile: file("popup-delay"), encoding: .utf8),
+              let v = Double(s.trimmingCharacters(in: .whitespacesAndNewlines)) else { return 0 }
+        return max(0, v) * 1000
+    }
+    static var popupIgnoreWords: [String] {
+        guard let s = try? String(contentsOfFile: file("popup-ignore"), encoding: .utf8) else { return [] }
+        return s.lowercased().split(whereSeparator: { $0 == "," || $0 == "\n" })
+            .map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+    }
+
+    // Panes currently waiting for input (most-recent first), each with a display
+    // name, the wait-start time, and the reason message. Name = spoken name,
+    // else recorded label, else tty. Handles both the old (number) and new
+    // ({ts,msg}) waiting.json value shapes.
+    static func waitingPanes() -> [(tty: String, name: String, ts: Double, msg: String)] {
         func obj(_ name: String) -> [String: Any] {
             (try? Data(contentsOf: URL(fileURLWithPath: file(name))))
                 .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
@@ -95,14 +109,20 @@ enum State {
         if waiting.isEmpty { return [] }
         let voices = obj("pane-voices.json")
         let panes = obj("panes.json")
+        func tsmsg(_ v: Any) -> (Double, String) {
+            if let n = v as? NSNumber { return (n.doubleValue, "") }
+            if let d = v as? [String: Any] { return (((d["ts"] as? NSNumber)?.doubleValue) ?? 0, (d["msg"] as? String) ?? "") }
+            return (0, "")
+        }
         return waiting
-            .sorted { (((($0.value as? NSNumber)?.doubleValue) ?? 0) > ((($1.value as? NSNumber)?.doubleValue) ?? 0)) }
-            .map { (tty, _) in
-                let short = tty.replacingOccurrences(of: "/dev/", with: "")
-                let name = ((voices[tty] as? [String: Any])?["speakName"] as? String)
-                    ?? ((panes[tty] as? [String: Any])?["label"] as? String)
+            .map { (tty: $0.key, tm: tsmsg($0.value)) }
+            .sorted { $0.tm.0 > $1.tm.0 }
+            .map { item in
+                let short = item.tty.replacingOccurrences(of: "/dev/", with: "")
+                let name = ((voices[item.tty] as? [String: Any])?["speakName"] as? String)
+                    ?? ((panes[item.tty] as? [String: Any])?["label"] as? String)
                     ?? short
-                return (tty, name.isEmpty ? short : name)
+                return (item.tty, name.isEmpty ? short : name, item.tm.0, item.tm.1)
             }
     }
 
@@ -214,7 +234,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // an always-on-top window with a character + "<name> は応答待ち！". It hides
     // itself the moment nothing is waiting (or the user clicks it away).
     private func updateWaitingPopup() {
-        let panes = State.popupEnabled ? State.waitingPanes() : []
+        var panes: [(tty: String, name: String, ts: Double, msg: String)] = []
+        if State.popupEnabled {
+            let now = Date().timeIntervalSince1970 * 1000
+            let delayMs = State.popupDelayMs
+            let ignore = State.popupIgnoreWords
+            panes = State.waitingPanes().filter { p in
+                if now - p.ts < delayMs { return false } // hasn't waited long enough yet
+                if !ignore.isEmpty {
+                    let m = p.msg.lowercased()
+                    if ignore.contains(where: { m.contains($0) }) { return false } // a skipped reason
+                }
+                return true
+            }
+        }
         if panes.isEmpty {
             waitingDismissedSig = "" // reset; the next wait shows again
             hideWaitingPopup()

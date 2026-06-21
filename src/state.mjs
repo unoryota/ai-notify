@@ -198,10 +198,12 @@ const waitingPath = () => join(stateDir(), 'waiting.json');
 
 // Track which panes are waiting for input, so the menu bar icon can show a
 // status color (yellow) when any agent needs you.
-export const setPaneWaiting = (tty, waiting) => {
+export const setPaneWaiting = (tty, waiting, message = '') => {
   if (!tty) return;
   const all = readJson(waitingPath(), {});
-  if (waiting) all[tty] = Date.now();
+  // Store the reason text alongside the start time so the popup can filter by
+  // wait duration and by message (e.g. ignore sub-agent waits, keep input waits).
+  if (waiting) all[tty] = { ts: Date.now(), msg: String(message || '') };
   else delete all[tty];
   writeJson(waitingPath(), all);
 };
@@ -230,6 +232,38 @@ export const setPopupImage = (p) => {
   ensureDir(stateDir());
   if (p) writeFileSync(popupImagePath(), p);
   else rmSync(popupImagePath(), { force: true });
+};
+
+// Popup notify threshold: only show the popup once a pane has been waiting this
+// many seconds (0 = immediately) — so transient / sub-agent waits don't nag.
+const popupDelayPath = () => join(stateDir(), 'popup-delay');
+export const getPopupDelay = () => {
+  try {
+    return Math.max(0, parseFloat(readFileSync(popupDelayPath(), 'utf8')) || 0);
+  } catch {
+    return 0;
+  }
+};
+export const setPopupDelay = (sec) => {
+  ensureDir(stateDir());
+  if (sec > 0) writeFileSync(popupDelayPath(), String(sec));
+  else rmSync(popupDelayPath(), { force: true });
+};
+
+// Comma-separated keywords: if a waiting reason message contains any of them,
+// the popup is suppressed for that pane (e.g. "subagent,sub-agent,task").
+const popupIgnorePath = () => join(stateDir(), 'popup-ignore');
+export const getPopupIgnore = () => {
+  try {
+    return readFileSync(popupIgnorePath(), 'utf8').trim();
+  } catch {
+    return '';
+  }
+};
+export const setPopupIgnore = (s) => {
+  ensureDir(stateDir());
+  if (s) writeFileSync(popupIgnorePath(), s);
+  else rmSync(popupIgnorePath(), { force: true });
 };
 
 // Record this pane as active (keyed by tty). Keeps the 16 most-recent.

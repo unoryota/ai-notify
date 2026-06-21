@@ -37,6 +37,10 @@ import {
   setPopupEnabled,
   getPopupImage,
   setPopupImage,
+  getPopupDelay,
+  setPopupDelay,
+  getPopupIgnore,
+  setPopupIgnore,
 } from './state.mjs';
 import { resolve as resolvePath } from 'node:path';
 
@@ -596,7 +600,7 @@ const cmds = {
 
   // The "waiting" character popup (menu bar app): an always-on-top window that
   // shows a character saying which pane is waiting for input. macOS-only effect.
-  //   popup [on|off|toggle|image <path>|image clear|status]
+  //   popup [on|off|toggle|image <path>|delay <sec>|ignore <kw,kw>|status]
   popup() {
     const sub = positionals[0] || 'status';
     if (sub === 'on' || sub === 'off' || sub === 'toggle') {
@@ -614,9 +618,28 @@ const cmds = {
       setPopupImage(abs);
       return log(`popup image → ${abs}`);
     }
+    // Threshold: only pop up after a pane has been waiting this many seconds.
+    if (sub === 'delay') {
+      const v = parseFloat(positionals[1]);
+      if (!Number.isFinite(v)) return log(`popup delay: ${getPopupDelay()}s`);
+      setPopupDelay(Math.max(0, v));
+      return log(v > 0 ? `popup delay → ${Math.max(0, v)}s (waits shorter than this are ignored)` : 'popup delay → 0s (immediate)');
+    }
+    // Suppress the popup when the waiting reason contains any of these keywords.
+    if (sub === 'ignore') {
+      const kw = positionals.slice(1).join(' ').trim();
+      if (!kw || kw === 'clear') {
+        setPopupIgnore('');
+        return log('popup ignore cleared (no message filtering).');
+      }
+      setPopupIgnore(kw);
+      return log(`popup ignore → ${kw}`);
+    }
     log(`waiting popup: ${isPopupEnabled() ? '🪧 ON' : 'OFF'}`);
     log(`character image: ${getPopupImage() || '(default)'}`);
-    log('\nEnable:  ai-notify popup on      Your character:  ai-notify popup image /path/to/zunda.png');
+    log(`delay:          ${getPopupDelay()}s${getPopupDelay() > 0 ? ' (ignore shorter waits)' : ' (immediate)'}`);
+    log(`ignore words:   ${getPopupIgnore() || '(none)'}`);
+    log('\nEnable: ai-notify popup on   |   Threshold: ai-notify popup delay 15   |   Skip reasons: ai-notify popup ignore subagent,task');
   },
 
   // Get/set the VOICEVOX base prosody (the normal-tone scales the menu bar
@@ -831,7 +854,7 @@ Usage:
   ai-notify tsundere [on|off|level <0-1>|test|status]   tsundere persona (ツン⇄デレ by urgency)
   ai-notify voice-prosody [speed|pitch|intonation <v>|reset]  VOICEVOX read-out tuning
   ai-notify menubar [install|uninstall|status]       native menu bar bell (macOS)
-  ai-notify popup [on|off|image <path>]              "waiting for input" character popup (macOS)
+  ai-notify popup [on|off|image <p>|delay <s>|ignore <kw>]  "waiting for input" popup + when it shows (macOS)
   ai-notify translate [on <lang>|off|test]           speak agent text in your language
   ai-notify doctor                                    check deps & wiring
   ai-notify config [init]                             print (or write) config

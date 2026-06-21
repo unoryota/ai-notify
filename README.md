@@ -127,6 +127,16 @@ ai-notify popup off
 
 It floats over every app and Space, shows `<pane name> は応答待ち！`, and lists multiple waiting panes at once. Click it to dismiss. macOS-only (needs the menu bar app installed).
 
+**Control when it pops up.** Not every wait deserves your attention — a quick sub-agent turnaround isn't worth interrupting you, but a real "needs your input" is. Two knobs:
+
+```sh
+ai-notify popup delay 15                 # only pop up after waiting ≥ 15s (skip transient waits)
+ai-notify popup ignore subagent,task     # skip waits whose reason text matches these words
+ai-notify popup ignore clear             # remove the filter
+```
+
+The filter matches Claude Code's notification reason (e.g. "waiting for your input" vs a sub-agent message), so you can keep input/permission prompts and silence the rest.
+
 ## 🎙️ VOICEVOX character voices
 
 Optionally speak your notifications in [VOICEVOX](https://voicevox.hiroshiba.jp/) character voices (e.g. ずんだもん) — free, local, offline.

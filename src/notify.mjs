@@ -181,7 +181,9 @@ export const emit = ({ provider = 'default', event = 'done', label = '', message
   // pane's assigned name. Also remember the pane so the menu bar can list it.
   const tty = controllingTty();
   recordPane(tty, label);
-  setPaneWaiting(tty, event === 'waiting'); // waiting -> yellow menu bar status; done clears it
+  // waiting -> yellow menu bar status (+ the popup); done clears it. Pass the
+  // reason text so the popup can filter by it (e.g. ignore sub-agent waits).
+  setPaneWaiting(tty, event === 'waiting', event === 'waiting' ? message || fromTemplate : '');
   const pane = readPaneSetting(tty);
 
   // Name this pane in the read-out, most-reliable identity first:
