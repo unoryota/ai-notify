@@ -159,6 +159,23 @@ export const nextCounter = (name) => {
   return n;
 };
 
+// One-time UI nudges (e.g. the post-`init` star hint). Returns true the FIRST
+// time it's called for a given key, then records a marker so it never fires
+// again — so setup hints inform once without ever nagging on re-runs.
+export const firstRunNudge = (key = 'star') => {
+  const p = join(stateDir(), `nudged-${key}`);
+  if (existsSync(p)) return false;
+  try {
+    ensureDir(stateDir());
+    writeFileSync(p, '');
+  } catch {
+    /* best-effort: if we can't persist, don't nag repeatedly is preferred, so
+       treat a write failure as "already shown". */
+    return false;
+  }
+  return true;
+};
+
 // --- Per-pane state --------------------------------------------------------
 // Recently-active terminal panes (so the menu bar can offer per-pane voices),
 // and a per-tty voice override. Both are small JSON files in the state dir.

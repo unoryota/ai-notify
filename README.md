@@ -2,6 +2,12 @@
 
 **English** · [日本語](README.ja.md)
 
+[![npm](https://img.shields.io/npm/v/ai-notify?color=cb3837&logo=npm)](https://www.npmjs.com/package/ai-notify)
+[![downloads](https://img.shields.io/npm/dw/ai-notify?color=cb3837)](https://www.npmjs.com/package/ai-notify)
+[![license](https://img.shields.io/npm/l/ai-notify?color=blue)](./LICENSE)
+![platform](https://img.shields.io/badge/macOS%20%C2%B7%20Linux-zero--dep-success)
+[![stars](https://img.shields.io/github/stars/unoryota/ai-notify?style=social)](https://github.com/unoryota/ai-notify)
+
 **Know the moment your terminal AI agent needs you** — a sound, a spoken read-out, and a desktop banner the instant Claude Code, Codex, or another agent finishes a turn or asks for input. One mute switch covers **all of them, across every terminal**. No daemon, no background process.
 
 ![ai-notify demo](https://raw.githubusercontent.com/unoryota/ai-notify/main/assets/hero-en.gif)

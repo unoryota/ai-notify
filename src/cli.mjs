@@ -32,6 +32,7 @@ import {
   readPanes,
   readPaneSetting,
   updatePaneSetting,
+  firstRunNudge,
 } from './state.mjs';
 
 // Single source of truth: read the version from package.json so `--version`
@@ -138,7 +139,15 @@ const cmds = {
     }
     if (!any) log('  No supported agents detected (looked for Claude Code, Codex, Gemini).');
     log(`\nMute toggle:  ai-notify toggle    Status:  ai-notify status`);
-    if (!dryRun) log('Restart already-running Codex sessions to pick up the change.');
+    if (!dryRun) {
+      log('Restart already-running Codex sessions to pick up the change.');
+      // A quiet, one-time nudge — `init` is a setup command, run once. Shown
+      // only on the first successful wiring so it never nags on re-runs.
+      if (any && firstRunNudge()) {
+        log('\n⭐ Useful? A GitHub star really helps it reach others:');
+        log('   https://github.com/unoryota/ai-notify');
+      }
+    }
   },
 
   uninstall() {
