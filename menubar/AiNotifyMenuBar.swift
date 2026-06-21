@@ -136,9 +136,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func quit() { NSApp.terminate(nil) }
 
     @objc private func volumeChanged(_ s: NSSlider) { State.setVolume(s.doubleValue) }
-    @objc private func tsundereLevelChanged(_ s: NSSlider) { State.setTsundereLevel(s.doubleValue) }
+    // Slider is shown reversed (left = ツン, right = デレ) but the file keeps the
+    // canonical scale (0 = デレ, 1 = ツン), so write back 1 - position.
+    @objc private func tsundereLevelChanged(_ s: NSSlider) { State.setTsundereLevel(1 - s.doubleValue) }
+    @objc private func tsundereToggled(_ b: NSButton) { State.cli(["tsundere", "toggle"]) }
+    @objc private func paneTsundereChanged(_ s: NSSlider) {
+        if let tty = s.identifier?.rawValue { State.cli(["tsundere-pane", tty, String(format: "%.2f", 1 - s.doubleValue)]) }
+    }
     @objc private func paneVolumeChanged(_ s: NSSlider) {
         if let tty = s.identifier?.rawValue { State.cli(["volume-pane", tty, String(format: "%.2f", s.doubleValue)]) }
+    }
+    // identifier carries the prosody key (speed | pitch | intonation).
+    @objc private func prosodyChanged(_ s: NSSlider) {
+        if let key = s.identifier?.rawValue { State.cli(["voice-prosody", key, String(format: "%.3f", s.doubleValue)]) }
+    }
+
+    // A labeled VOICEVOX base-prosody slider (speed / pitch / intonation). Applied
+    // on release (one subprocess per drag avoided). The key rides in the identifier.
+    private func prosodyRow(label: String, value: Double, lo: Double, hi: Double, key: String) -> NSMenuItem {
+        let row = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
+        let cap = NSTextField(labelWithString: label)
+        cap.frame = NSRect(x: 12, y: 4, width: 48, height: 16)
+        cap.font = .systemFont(ofSize: 11); cap.textColor = .secondaryLabelColor
+        let slider = NSSlider(value: value, minValue: lo, maxValue: hi, target: self, action: #selector(prosodyChanged(_:)))
+        slider.frame = NSRect(x: 62, y: 3, width: 162, height: 20)
+        slider.isContinuous = false
+        slider.identifier = NSUserInterfaceItemIdentifier(key)
+        row.addSubview(cap); row.addSubview(slider)
+        let item = NSMenuItem(); item.view = row
+        return item
     }
 
     // A 🔊 + slider row. identifier == nil => global (live); otherwise a pane tty
@@ -156,21 +182,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return item
     }
 
-    // A デレ ⇄ ツン slider (0–1) for the tsundere baseline level. Continuous; writes
-    // the level file directly (like the global volume slider).
-    private func tsundereRow(value: Double) -> NSMenuItem {
+    // A ツン ⇄ デレ slider for the tsundere baseline level. Shown reversed (left =
+    // ツン, right = デレ) for intuition, while the file keeps 0 = デレ, 1 = ツン — so
+    // the knob sits at 1 - value and writes back 1 - position. Continuous.
+    private func tsundereRow(value: Double, identifier: String? = nil) -> NSMenuItem {
         let row = NSView(frame: NSRect(x: 0, y: 0, width: 220, height: 26))
-        let left = NSTextField(labelWithString: "デレ")
+        let left = NSTextField(labelWithString: "ツン")
         left.frame = NSRect(x: 12, y: 5, width: 30, height: 16)
         left.font = .systemFont(ofSize: 10); left.textColor = .secondaryLabelColor
-        let slider = NSSlider(value: value, minValue: 0, maxValue: 1, target: self, action: #selector(tsundereLevelChanged(_:)))
+        // identifier == nil => global (live, writes the level file); a pane tty =>
+        // per-pane override applied on release (one subprocess per drag avoided).
+        let action: Selector = identifier == nil ? #selector(tsundereLevelChanged(_:)) : #selector(paneTsundereChanged(_:))
+        let slider = NSSlider(value: 1 - value, minValue: 0, maxValue: 1, target: self, action: action)
         slider.frame = NSRect(x: 46, y: 3, width: 128, height: 20)
-        slider.isContinuous = true
+        slider.isContinuous = (identifier == nil)
         slider.trackFillColor = .systemPink
-        let right = NSTextField(labelWithString: "ツン")
+        if let id = identifier { slider.identifier = NSUserInterfaceItemIdentifier(id) }
+        let right = NSTextField(labelWithString: "デレ")
         right.frame = NSRect(x: 178, y: 5, width: 30, height: 16)
         right.font = .systemFont(ofSize: 10); right.textColor = .secondaryLabelColor
         row.addSubview(left); row.addSubview(slider); row.addSubview(right)
+        let item = NSMenuItem(); item.view = row
+        return item
+    }
+
+    // ツンデレモード on/off as a checkbox living inside a view row, so a click
+    // toggles in place instead of dismissing the menu (a normal menu item closes
+    // on click). The level slider below stays mounted regardless of this state, so
+    // the menu height never jumps.
+    private func tsundereToggleRow(on: Bool) -> NSMenuItem {
+        let row = NSView(frame: NSRect(x: 0, y: 0, width: 220, height: 24))
+        let btn = NSButton(checkboxWithTitle: "ツンデレモード", target: self, action: #selector(tsundereToggled(_:)))
+        btn.frame = NSRect(x: 12, y: 2, width: 196, height: 20)
+        btn.state = on ? .on : .off
+        row.addSubview(btn)
         let item = NSMenuItem(); item.view = row
         return item
     }
@@ -198,17 +243,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Global volume slider.
         menu.addItem(sliderRow(value: State.volume, action: #selector(volumeChanged(_:)), identifier: nil))
 
-        // Tsundere mode: toggle + デレ⇄ツン baseline slider (shown when on).
+        // Tsundere mode: checkbox toggle + ツン⇄デレ baseline slider. Both live in
+        // view rows and are always mounted, so toggling never closes the menu nor
+        // shifts its height.
         let tsun = json?["tsundere"] as? [String: Any]
         let tsunOn = (tsun?["enabled"] as? Bool) ?? false
         let tsunLevel = (tsun?["level"] as? Double) ?? 0.5
-        let tsunItem = NSMenuItem(title: "ツンデレモード", action: #selector(runItem(_:)), keyEquivalent: "")
-        tsunItem.target = self
-        tsunItem.representedObject = ["tsundere", "toggle"]
-        tsunItem.state = tsunOn ? .on : .off
-        menu.addItem(tsunItem)
-        if tsunOn { menu.addItem(tsundereRow(value: tsunLevel)) }
+        menu.addItem(tsundereToggleRow(on: tsunOn))
+        menu.addItem(tsundereRow(value: tsunLevel))
         menu.addItem(.separator())
+
+        // VOICEVOX base prosody (speed / pitch / intonation) — only when VOICEVOX
+        // is the active TTS, since these are VOICEVOX audio_query scales.
+        if (json?["tts"] as? String) == "voicevox" {
+            let pr = json?["prosody"] as? [String: Any] ?? [:]
+            let range = json?["prosodyRange"] as? [String: Any] ?? [:]
+            let bounds: (String, Double, Double) -> (Double, Double) = { key, dlo, dhi in
+                let r = range[key] as? [Any]
+                let lo = (r?.first as? Double) ?? dlo
+                let hi = (r?.last as? Double) ?? dhi
+                return (lo, hi)
+            }
+            menu.addItem(disabledHeader("読み上げ（VOICEVOX）"))
+            for (key, label, dlo, dhi, dflt) in [
+                ("speed", "速さ", 0.5, 1.5, 1.0),
+                ("pitch", "高さ", -0.15, 0.15, 0.0),
+                ("intonation", "抑揚", 0.0, 1.5, 1.0),
+            ] {
+                let (lo, hi) = bounds(key, dlo, dhi)
+                let v = (pr[key] as? Double) ?? dflt
+                menu.addItem(prosodyRow(label: label, value: v, lo: lo, hi: hi, key: key))
+            }
+            menu.addItem(.separator())
+        }
 
         if voices.isEmpty {
             menu.addItem(disabledHeader("(声の一覧を取得できません)"))
@@ -236,6 +303,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 volDef.target = self; volDef.representedObject = ["volume-pane", tty, "clear"]
                 volDef.state = (p["volumeSet"] as? Bool ?? false) ? .off : .on
                 sub.addItem(volDef)
+                sub.addItem(.separator())
+                // Per-pane tsundere baseline (same ツン⇄デレ slider as global).
+                sub.addItem(disabledHeader("ツンデレ"))
+                let pts = (p["tsundere"] as? Double) ?? tsunLevel
+                sub.addItem(tsundereRow(value: pts, identifier: tty))
+                let tsDef = NSMenuItem(title: "強さを全体に従う", action: #selector(runItem(_:)), keyEquivalent: "")
+                tsDef.target = self; tsDef.representedObject = ["tsundere-pane", tty, "clear"]
+                tsDef.state = (p["tsundereSet"] as? Bool ?? false) ? .off : .on
+                sub.addItem(tsDef)
                 sub.addItem(.separator())
                 // Per-pane voice.
                 sub.addItem(disabledHeader("声"))

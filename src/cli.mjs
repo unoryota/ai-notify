@@ -25,6 +25,10 @@ import {
   setVolume,
   readTsundereLevel,
   setTsundereLevel,
+  readVoiceProsody,
+  setVoiceProsody,
+  resetVoiceProsody,
+  VOICE_PROSODY_RANGE,
   readPanes,
   readPaneSetting,
   updatePaneSetting,
@@ -342,9 +346,10 @@ const cmds = {
     const ts = config.tsundere;
     const url = config.voicevox?.url || voicevox.DEFAULT_URL;
 
-    const sayText = (text, voice) => {
+    const sayText = (text, voice, tone = 'normal') => {
       try {
-        execFileSync('say', voice ? ['-v', voice, text] : [text], { stdio: 'ignore' });
+        const t = tsundere.decorateForSay(text, tone); // human contour, not 棒読み
+        execFileSync('say', voice ? ['-v', voice, t] : [t], { stdio: 'ignore' });
       } catch {
         /* non-mac / no say — ignore */
       }
@@ -396,12 +401,13 @@ const cmds = {
         const eff = tsundere.effectiveLevel(level, tier, ts.urgencyShift !== false);
         const text = tsundere.wrap(s.body, eff, tier, lang, 0);
         const mul = tsundere.volumeMul(tier, ts.volumeBoost !== false);
-        log(`  [${tier} ×${mul} ${tsundere.axisFor(eff)}] ${text}`);
+        const tone = tsundere.axisFor(eff);
+        log(`  [${tier} ×${mul} ${tone}] ${text}`);
         if (sm) {
-          const speaker = sm[tsundere.axisFor(eff)] ?? config.voicevox?.speaker;
-          voicevox.speak(text, speaker, url, mul);
+          const speaker = sm[tone] ?? config.voicevox?.speaker;
+          voicevox.speak(text, speaker, url, mul, undefined, tsundere.effectiveProsody(tone, readVoiceProsody()));
         } else {
-          sayText(text, config.voice || '');
+          sayText(text, config.voice || '', tone);
         }
       }
       return;
@@ -454,6 +460,38 @@ const cmds = {
     log(`pane ${tty}: volume ${v}`);
   },
 
+  // Set a specific pane's tsundere baseline level (0=デレ – 1=ツン), or `clear` to
+  // follow the global level.  tsundere-pane <tty> <0-1|clear>
+  'tsundere-pane'() {
+    const [tty, arg] = positionals;
+    if (!tty || arg === undefined) {
+      console.error('usage: tsundere-pane <tty> <0-1|clear>');
+      process.exit(1);
+    }
+    if (arg === 'clear') {
+      updatePaneSetting(tty, { tsundere: null });
+      return log(`pane ${tty}: tsundere level reset to global`);
+    }
+    const v = Math.min(1, Math.max(0, Number(arg)));
+    updatePaneSetting(tty, { tsundere: v });
+    log(`pane ${tty}: tsundere level ${v}`);
+  },
+
+  // Get/set the VOICEVOX base prosody (the normal-tone scales the menu bar
+  // sliders drive). With no args, prints the current values as JSON.
+  //   voice-prosody [speed|pitch|intonation <value> | reset]
+  'voice-prosody'() {
+    const [key, val] = positionals;
+    if (key === 'reset') return log(JSON.stringify(resetVoiceProsody()));
+    if (!key || val === undefined) return log(JSON.stringify(readVoiceProsody()));
+    const next = setVoiceProsody(key, val);
+    if (!next) {
+      console.error('usage: voice-prosody <speed|pitch|intonation> <value> | reset');
+      process.exit(1);
+    }
+    log(`voice prosody ${key} → ${next[key]}`);
+  },
+
   // Machine-readable state for the menu bar agent: mute, volume, the selectable
   // voices, and the recently-active panes (for per-pane assignment). Not human.
   'menu-json'() {
@@ -485,6 +523,7 @@ const cmds = {
     // Panes = live terminals currently running an agent (so they show up before
     // they ever fire a notification) merged with previously-recorded ones.
     const globalVol = readVolume() != null ? readVolume() : typeof config.volume === 'number' ? config.volume : 1;
+    const tsLevel = readTsundereLevel() != null ? readTsundereLevel() : config.tsundere?.level ?? 0.5;
     const recorded = new Map(readPanes().map((p) => [p.tty, p.label]));
     const ttys = new Set([...livePanes(), ...recorded.keys()]);
     const panes = [...ttys].map((tty) => {
@@ -495,9 +534,10 @@ const cmds = {
         current: labelFor(s.tts ? s : null),
         volume: typeof s.volume === 'number' ? s.volume : globalVol,
         volumeSet: typeof s.volume === 'number',
+        tsundere: typeof s.tsundere === 'number' ? s.tsundere : tsLevel,
+        tsundereSet: typeof s.tsundere === 'number',
       };
     });
-    const tsLevel = readTsundereLevel() != null ? readTsundereLevel() : config.tsundere?.level ?? 0.5;
     log(
       JSON.stringify({
         muted: isMuted(),
@@ -505,6 +545,9 @@ const cmds = {
         voices,
         panes,
         tsundere: { enabled: !!config.tsundere?.enabled, level: tsLevel },
+        tts: config.tts || 'say',
+        prosody: readVoiceProsody(),
+        prosodyRange: VOICE_PROSODY_RANGE,
       })
     );
   },
@@ -642,6 +685,7 @@ Usage:
   ai-notify voice [number|name|preview|default]      pick the spoken voice
   ai-notify voicevox [setup|on <id>|off|speakers|test]  speak in VOICEVOX character voices
   ai-notify tsundere [on|off|level <0-1>|test|status]   tsundere persona (ツン⇄デレ by urgency)
+  ai-notify voice-prosody [speed|pitch|intonation <v>|reset]  VOICEVOX read-out tuning
   ai-notify menubar [install|uninstall|status]       native menu bar bell (macOS)
   ai-notify translate [on <lang>|off|test]           speak agent text in your language
   ai-notify doctor                                    check deps & wiring

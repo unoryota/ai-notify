@@ -16,6 +16,7 @@ import {
   readPaneSetting,
   setPaneWaiting,
   readTsundereLevel,
+  readVoiceProsody,
   nextCounter,
 } from './state.mjs';
 import { controllingTty } from './util.mjs';
@@ -83,14 +84,23 @@ const sayWithVolume = (text, voice, vol) => {
   }
 };
 
-const speak = (text, voice, vol = 1) => {
+const speak = (text, voice, vol = 1, tone = 'normal') => {
   if (!text) return;
   if (platform === 'darwin') {
-    if (vol !== 1) return sayWithVolume(text, voice, vol);
-    run('say', voice ? ['-v', voice, text] : [text]);
+    // Give the OS voice human contour (pace/pitch/intonation + real pauses)
+    // instead of a flat 棒読み monotone.
+    const t = tsundere.decorateForSay(text, tone);
+    if (vol !== 1) return sayWithVolume(t, voice, vol);
+    run('say', voice ? ['-v', voice, t] : [t]);
   } else if (platform === 'linux') {
-    if (which('spd-say')) run('spd-say', [text]);
-    else if (which('espeak')) run('espeak', [text]);
+    const e = tsundere.prosodyFor(tone).espeak;
+    if (which('spd-say')) {
+      const r = Math.max(-100, Math.min(100, Math.round((e.speed - 175) / 1.5)));
+      const pch = Math.max(-100, Math.min(100, Math.round((e.pitch - 50) * 2)));
+      run('spd-say', ['-r', String(r), '-p', String(pch), text]);
+    } else if (which('espeak')) {
+      run('espeak', ['-p', String(e.pitch), '-s', String(e.speed), text]);
+    }
   } else if (platform === 'win32') {
     run('powershell', [
       '-NoProfile',
@@ -203,18 +213,22 @@ export const emit = ({ provider = 'default', event = 'done', label = '', message
   let outText = speakText;
   let outVol = vol;
   let outSpeaker = speaker;
+  let speakTone = 'normal'; // delivery contour; tsundere sets it to tsun/dere
   const ts = config.tsundere;
   if (ts && ts.enabled) {
     const tier = tsundere.classifyUrgency(event, message, fullBody);
     const envLevel = parseFloat(process.env.AI_NOTIFY_TSUNDERE_LEVEL);
     const baseLevel = Number.isFinite(envLevel)
       ? Math.min(1, Math.max(0, envLevel))
-      : readTsundereLevel() != null
-        ? readTsundereLevel()
-        : typeof ts.level === 'number'
-          ? ts.level
-          : 0.5;
+      : typeof pane.tsundere === 'number'
+        ? pane.tsundere
+        : readTsundereLevel() != null
+          ? readTsundereLevel()
+          : typeof ts.level === 'number'
+            ? ts.level
+            : 0.5;
     const eff = tsundere.effectiveLevel(baseLevel, tier, ts.urgencyShift !== false);
+    speakTone = tsundere.axisFor(eff);
     outVol = Math.min(2, Math.max(0, vol * tsundere.volumeMul(tier, ts.volumeBoost !== false)));
     outText = tsundere.wrap(spokenBody, eff, tier, ts.lang || 'ja', nextCounter('tsundere'));
     if (config.speakLabel === true && label) outText = `${label}、${outText}`;
@@ -230,9 +244,10 @@ export const emit = ({ provider = 'default', event = 'done', label = '', message
     if (config.speak && outVol > 0) {
       let spoken = false;
       if (tts === 'voicevox') {
-        spoken = voicevox.speak(outText, outSpeaker, config.voicevox?.url, outVol);
+        const prosody = tsundere.effectiveProsody(speakTone, readVoiceProsody());
+        spoken = voicevox.speak(outText, outSpeaker, config.voicevox?.url, outVol, undefined, prosody);
       }
-      if (!spoken) speak(outText, voice, outVol); // OS `say` (also the VOICEVOX fallback)
+      if (!spoken) speak(outText, voice, outVol, speakTone); // OS `say` (also the VOICEVOX fallback)
     }
   }
 

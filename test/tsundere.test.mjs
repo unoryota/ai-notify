@@ -23,10 +23,10 @@ test('classifyUrgency: plain waiting is T2, plain done is T1', () => {
 
 test('effectiveLevel: urgency shifts the baseline and clamps', () => {
   const close = (a, b) => assert.ok(Math.abs(a - b) < 1e-9, `${a} ≈ ${b}`);
-  close(effectiveLevel(0.5, 'T3'), 0.9); // toward ツン
-  close(effectiveLevel(0.5, 'T0'), 0.1); // toward デレ
+  close(effectiveLevel(0.5, 'T3'), 0.75); // toward ツン (±0.25 nudge; slider stays in charge)
+  close(effectiveLevel(0.5, 'T0'), 0.25); // toward デレ
   close(effectiveLevel(0.5, 'T1'), 0.5); // neutral
-  assert.equal(effectiveLevel(0.9, 'T3'), 1); // clamped
+  assert.equal(effectiveLevel(0.8, 'T3'), 1); // clamped (0.8 + 0.25)
   close(effectiveLevel(0.5, 'T3', false), 0.5); // shift disabled
 });
 

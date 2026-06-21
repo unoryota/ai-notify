@@ -90,6 +90,55 @@ export const setTsundereLevel = (v) => {
   return n;
 };
 
+// --- VOICEVOX base prosody -------------------------------------------------
+// User-tunable BASE scales for the VOICEVOX read-out — the values used at the
+// NORMAL tone; tsundere tones nudge from here. Written by the menu bar sliders /
+// `ai-notify voice-prosody`, read at fire time. One small JSON file so all three
+// stay in sync. Defaults = neutral (identical to no tuning).
+export const VOICE_PROSODY_DEFAULTS = { speed: 1.0, pitch: 0.0, intonation: 1.0 };
+export const VOICE_PROSODY_RANGE = { speed: [0.5, 1.5], pitch: [-0.15, 0.15], intonation: [0.0, 1.5] };
+
+const voiceProsodyPath = () => join(stateDir(), 'voice-prosody.json');
+
+const clampProsody = (key, v) => {
+  const [lo, hi] = VOICE_PROSODY_RANGE[key] || [0, 2];
+  return Math.min(hi, Math.max(lo, Number(v)));
+};
+
+export const readVoiceProsody = () => {
+  let raw = {};
+  try {
+    raw = JSON.parse(readFileSync(voiceProsodyPath(), 'utf8')) || {};
+  } catch {
+    /* missing/corrupt -> defaults */
+  }
+  const out = {};
+  for (const k of Object.keys(VOICE_PROSODY_DEFAULTS)) {
+    out[k] = typeof raw[k] === 'number' ? clampProsody(k, raw[k]) : VOICE_PROSODY_DEFAULTS[k];
+  }
+  return out;
+};
+
+// Set one key (speed | pitch | intonation); returns the full updated object, or
+// null for an unknown key.
+export const setVoiceProsody = (key, value) => {
+  if (!(key in VOICE_PROSODY_DEFAULTS)) return null;
+  const cur = readVoiceProsody();
+  cur[key] = clampProsody(key, value);
+  ensureDir(stateDir());
+  writeFileSync(voiceProsodyPath(), JSON.stringify(cur));
+  return cur;
+};
+
+export const resetVoiceProsody = () => {
+  try {
+    rmSync(voiceProsodyPath(), { force: true });
+  } catch {
+    /* ignore */
+  }
+  return { ...VOICE_PROSODY_DEFAULTS };
+};
+
 // A small persisted counter (per name), so phrase rotation varies across fires
 // even for identical input. Wraps to stay small; best-effort.
 export const nextCounter = (name) => {
@@ -157,7 +206,8 @@ export const readPanes = () =>
     .map(([tty, v]) => ({ tty, label: v.label || '', ts: v.ts || 0 }))
     .sort((a, b) => b.ts - a.ts);
 
-// Per-pane settings: { tts, speaker, voice, volume }. Any subset may be set.
+// Per-pane settings: { tts, speaker, voice, volume, tsundere }. Any subset may
+// be set (tsundere = a 0–1 baseline level override; null/absent = follow global).
 export const readPaneSetting = (tty) => (tty ? readJson(paneVoicesPath(), {})[tty] || {} : {});
 
 // Merge `patch` into the pane's settings; keys set to null are removed; an empty

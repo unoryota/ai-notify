@@ -9,7 +9,7 @@
 // return false and the caller falls back to the OS `say` voice.
 
 import { execSync, execFileSync } from 'node:child_process';
-import { existsSync, statSync, mkdtempSync, rmSync, appendFileSync } from 'node:fs';
+import { existsSync, statSync, mkdtempSync, rmSync, appendFileSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir, homedir } from 'node:os';
 import { stateDir } from './state.mjs';
@@ -154,8 +154,25 @@ const playWav = (wav, vol = 1) => {
   }
 };
 
+// Apply a prosody profile to a VOICEVOX audio_query JSON in place, so the
+// read-out has human contour (pace/pitch/intonation) instead of a flat 棒読み.
+// Only the small query JSON passes through Node; the WAV never does.
+const applyProsody = (queryPath, prosody) => {
+  if (!prosody) return;
+  try {
+    const q = JSON.parse(readFileSync(queryPath, 'utf8'));
+    if (typeof prosody.speed === 'number') q.speedScale = prosody.speed;
+    if (typeof prosody.pitch === 'number') q.pitchScale = prosody.pitch;
+    if (typeof prosody.intonation === 'number') q.intonationScale = prosody.intonation;
+    writeFileSync(queryPath, JSON.stringify(q));
+  } catch {
+    /* leave the query untouched on any parse/IO error */
+  }
+};
+
 // Synthesize and play. Returns true if it spoke, false to fall back to `say`.
-export const speak = (text, speaker = 3, url = DEFAULT_URL, vol = 1, timeoutMs = 15000) => {
+// `prosody` (optional) = { speed, pitch, intonation } audio_query scale overrides.
+export const speak = (text, speaker = 3, url = DEFAULT_URL, vol = 1, timeoutMs = 15000, prosody = null) => {
   if (!text) return false;
   let dir;
   try {
@@ -163,12 +180,26 @@ export const speak = (text, speaker = 3, url = DEFAULT_URL, vol = 1, timeoutMs =
     const wav = join(dir, 'v.wav');
     const sec = String(Math.max(2, Math.ceil(timeoutMs / 1000)));
     const enc = encodeURIComponent(text); // URL-encoded -> no shell metacharacters
-    // Pipe audio_query straight into synthesis. execSync uses /bin/sh for the pipe.
-    const cmd =
-      `curl -s -m ${sec} -X POST "${url}/audio_query?speaker=${speaker}&text=${enc}" | ` +
-      `curl -s -m ${sec} -X POST -H "Content-Type: application/json" -d @- ` +
-      `"${url}/synthesis?speaker=${speaker}" -o "${wav}"`;
-    execSync(cmd, { timeout: timeoutMs + 1000, stdio: 'ignore' });
+    if (prosody) {
+      // Two steps so we can tune the query JSON between them (still no WAV in Node).
+      const q = join(dir, 'q.json');
+      execSync(`curl -s -m ${sec} -X POST "${url}/audio_query?speaker=${speaker}&text=${enc}" -o "${q}"`, {
+        timeout: timeoutMs + 1000,
+        stdio: 'ignore',
+      });
+      applyProsody(q, prosody);
+      execSync(
+        `curl -s -m ${sec} -X POST -H "Content-Type: application/json" -d @"${q}" "${url}/synthesis?speaker=${speaker}" -o "${wav}"`,
+        { timeout: timeoutMs + 1000, stdio: 'ignore' }
+      );
+    } else {
+      // Pipe audio_query straight into synthesis. execSync uses /bin/sh for the pipe.
+      const cmd =
+        `curl -s -m ${sec} -X POST "${url}/audio_query?speaker=${speaker}&text=${enc}" | ` +
+        `curl -s -m ${sec} -X POST -H "Content-Type: application/json" -d @- ` +
+        `"${url}/synthesis?speaker=${speaker}" -o "${wav}"`;
+      execSync(cmd, { timeout: timeoutMs + 1000, stdio: 'ignore' });
+    }
     if (!existsSync(wav) || statSync(wav).size < 1000) {
       logFail(`empty/short wav (speaker ${speaker}, ${text.length} chars)`);
       return false;
