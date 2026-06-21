@@ -231,43 +231,47 @@ export const emit = ({ provider = 'default', event = 'done', label = '', message
           ? config.volume
           : 1;
 
-  // Tsundere mode: skin the spoken text, scale volume, and (with VOICEVOX) pick
-  // the character's ツンツン/あまあま style — all driven by the event's urgency.
-  // The banner is left untouched (it stays factual). Off => identical to before.
+  // Read-out "skin". Both personas are slider-only now (no enable toggle): each
+  // slider's CENTER (0.5) is OFF, and the further from center the stronger.
+  //   ツンデレ : 0 = デレ … 0.5 = off … 1 = ツン
+  //   アドレナリン: 0.5 = off (平時); distance from center = intensity (→ 危機)
+  // When アドレナリン is active it skins the read-out (ops room), flavored by the
+  // tsundere level as the operator's 好感度; otherwise ツンデレ skins it.
   let outText = speakText;
   let outVol = vol;
   let outSpeaker = speaker;
-  let speakTone = 'normal'; // delivery contour; tsundere/war set it to tsun/dere
+  let speakTone = 'normal';
   let warActive = false;
-  let warLevel = 0.5;
-  const ts = config.tsundere;
+  let warIntensity = 0;
+  const ts = config.tsundere || {};
   const tier = tsundere.classifyUrgency(event, message, fullBody);
-  // The tsundere LEVEL doubles as the operator's 好感度 for war mode, so resolve
-  // it even when tsundere skinning is off.
-  const tsBaseLevel = (() => {
+
+  // Levels, per-pane first (env > pane > file > config). 0.5 = off.
+  const tsLevel = (() => {
     const envLevel = parseFloat(process.env.AI_NOTIFY_TSUNDERE_LEVEL);
     if (Number.isFinite(envLevel)) return Math.min(1, Math.max(0, envLevel));
     if (typeof pane.tsundere === 'number') return pane.tsundere;
     const f = readTsundereLevel();
     if (f != null) return f;
-    return typeof ts?.level === 'number' ? ts.level : 0.5;
+    return typeof ts.level === 'number' ? ts.level : 0.5;
   })();
+  const warSlider = typeof pane.war === 'number' ? pane.war : readWarLevel();
+  const tsundereActive = Math.abs(tsLevel - 0.5) > 0.04;
 
-  if (isWarEnabled()) {
-    // War mode skins the read-out (ops room); the tsundere level flavors it.
+  if (Math.abs(warSlider - 0.5) > 0.04) {
     warActive = true;
-    warLevel = readWarLevel();
-    const eff = tsundere.effectiveLevel(tsBaseLevel, tier, ts?.urgencyShift !== false);
+    warIntensity = Math.min(1, Math.abs(warSlider - 0.5) * 2);
+    const eff = tsundere.effectiveLevel(tsLevel, tier, ts.urgencyShift !== false);
     speakTone = tsundere.axisFor(eff);
-    outVol = Math.min(2, Math.max(0, vol * war.volumeMul(warLevel, tier)));
-    outText = war.wrap(spokenBody, warLevel, eff, ts?.lang || 'ja', nextCounter('war'));
+    outVol = Math.min(2, Math.max(0, vol * war.volumeMul(warIntensity, tier)));
+    outText = war.wrap(spokenBody, warIntensity, eff, ts.lang || 'ja', nextCounter('war'));
     if (spokenName) outText = joinName(spokenName, outText);
     if (tts === 'voicevox') {
-      const sm = ts?.styleMap || voicevox.resolveStyles(outSpeaker, config.voicevox?.url);
+      const sm = ts.styleMap || voicevox.resolveStyles(outSpeaker, config.voicevox?.url);
       if (sm && sm[speakTone] != null) outSpeaker = sm[speakTone];
     }
-  } else if (ts && ts.enabled) {
-    const eff = tsundere.effectiveLevel(tsBaseLevel, tier, ts.urgencyShift !== false);
+  } else if (tsundereActive) {
+    const eff = tsundere.effectiveLevel(tsLevel, tier, ts.urgencyShift !== false);
     speakTone = tsundere.axisFor(eff);
     outVol = Math.min(2, Math.max(0, vol * tsundere.volumeMul(tier, ts.volumeBoost !== false)));
     outText = tsundere.wrap(spokenBody, eff, tier, ts.lang || 'ja', nextCounter('tsundere'));
@@ -283,8 +287,10 @@ export const emit = ({ provider = 'default', event = 'done', label = '', message
     if (config.speak && outVol > 0) {
       let spoken = false;
       if (tts === 'voicevox') {
-        let prosody = tsundere.effectiveProsody(speakTone, readVoiceProsody());
-        if (warActive) prosody = war.effectiveProsody(warLevel, prosody); // band scale on top
+        // Base prosody: global, with this pane's per-pane overrides on top.
+        const baseProsody = { ...readVoiceProsody(), ...(pane.prosody || {}) };
+        let prosody = tsundere.effectiveProsody(speakTone, baseProsody);
+        if (warActive) prosody = war.effectiveProsody(warIntensity, prosody); // band scale on top
         spoken = voicevox.speak(outText, outSpeaker, config.voicevox?.url, outVol, undefined, prosody);
       }
       if (!spoken) speak(outText, voice, outVol, speakTone); // OS `say` (also the VOICEVOX fallback)

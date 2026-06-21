@@ -381,8 +381,6 @@ final class SettingsWindowController: NSObject {
 
         // Parameter rows (top-down).
         let blue = NSColor(srgbRed: 0, green: 122.0 / 255.0, blue: 1, alpha: 1)
-        let pink = NSColor.systemPink
-        let red = NSColor(srgbRed: 0.85, green: 0.2, blue: 0.15, alpha: 1)
         let tsun = j["tsundere"] as? [String: Any]
         let warj = j["war"] as? [String: Any]
         let pr = j["prosody"] as? [String: Any] ?? [:]
@@ -398,11 +396,9 @@ final class SettingsWindowController: NSObject {
         let rows: [SettingsRow] = [
             SettingsRow(title: "音量", asCheckbox: false, on: false, lo: 0, hi: 2, value: (j["volume"] as? Double) ?? 1, fill: blue,
                         onChange: { State.cli(["volume", String(format: "%.2f", $0)]) }),
-            SettingsRow(title: "ツンデレ", asCheckbox: true, on: (tsun?["enabled"] as? Bool) ?? false, lo: 0, hi: 1, value: (tsun?["level"] as? Double) ?? 0.5, fill: pink,
-                        onToggle: { State.cli(["tsundere", "toggle"]) },
+            SettingsRow(title: "ツンデレ", asCheckbox: false, on: false, lo: 0, hi: 1, value: (tsun?["level"] as? Double) ?? 0.5, fill: blue,
                         onChange: { State.cli(["tsundere", "level", String(format: "%.2f", $0)]) }),
-            SettingsRow(title: "アドレナリン", asCheckbox: true, on: (warj?["enabled"] as? Bool) ?? false, lo: 0, hi: 1, value: (warj?["level"] as? Double) ?? 0.5, fill: red,
-                        onToggle: { State.cli(["war", "toggle"]) },
+            SettingsRow(title: "アドレナリン", asCheckbox: false, on: false, lo: 0, hi: 1, value: (warj?["level"] as? Double) ?? 0.5, fill: blue,
                         onChange: { State.cli(["war", "level", String(format: "%.2f", $0)]) }),
             SettingsRow(title: "速さ", asCheckbox: false, on: false, lo: slo, hi: shi, value: (pr["speed"] as? Double) ?? 1, fill: blue,
                         onChange: { State.cli(["voice-prosody", "speed", String(format: "%.3f", $0)]) }),
@@ -412,7 +408,7 @@ final class SettingsWindowController: NSObject {
                         onChange: { State.cli(["voice-prosody", "intonation", String(format: "%.3f", $0)]) }),
         ]
         var y = 264
-        let header = NSTextField(labelWithString: "ツンデレ/アドレナリンは 0=デレ・平時 〜 1=ツン・危機")
+        let header = NSTextField(labelWithString: "ツンデレ/アドレナリンは中央＝OFF（中央から離すほど強い）")
         header.frame = NSRect(x: 16, y: 286, width: 440, height: 16)
         header.font = .systemFont(ofSize: 11); header.textColor = .secondaryLabelColor
         content.addSubview(header)
@@ -628,6 +624,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func paneVolumeChanged(_ s: NSSlider) {
         if let tty = s.identifier?.rawValue { State.cli(["volume-pane", tty, String(format: "%.2f", s.doubleValue)]) }
     }
+    @objc private func paneWarChanged(_ s: NSSlider) {
+        if let tty = s.identifier?.rawValue { State.cli(["war-pane", tty, String(format: "%.2f", s.doubleValue)]) }
+    }
+    @objc private func paneProsodyChanged(_ s: NSSlider) {
+        guard let id = s.identifier?.rawValue else { return }
+        let parts = id.split(separator: "\u{1}", maxSplits: 1).map(String.init)
+        if parts.count == 2 { State.cli(["prosody-pane", parts[0], parts[1], String(format: "%.3f", s.doubleValue)]) }
+    }
+
+    // A blue per-pane slider carrying its target id in `identifier`.
+    private func paneLevelRow(value: Double, lo: Double, hi: Double, action: Selector, id: String) -> NSMenuItem {
+        let row = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
+        let slider = NSSlider(frame: NSRect(x: 12, y: 3, width: 212, height: 20))
+        slider.cell = FilledSliderCell()
+        slider.minValue = lo; slider.maxValue = hi; slider.doubleValue = value
+        slider.target = self; slider.action = action
+        slider.isContinuous = false
+        slider.identifier = NSUserInterfaceItemIdentifier(id)
+        row.addSubview(slider)
+        let item = NSMenuItem(); item.view = row
+        return item
+    }
     // Editing a text field *inside* an NSMenu is unreliable — the menu's tracking
     // loop swallows the keystrokes. So naming a pane opens a normal modal dialog
     // (NSAlert with a text field), which takes keyboard focus properly. Empty =>
@@ -799,19 +817,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Global volume slider.
         menu.addItem(sliderRow(value: State.volume, action: #selector(volumeChanged(_:)), identifier: nil))
+        menu.addItem(.separator())
 
-        // Tsundere mode: checkbox toggle + ツン⇄デレ baseline slider. Both live in
-        // view rows and are always mounted, so toggling never closes the menu nor
-        // shifts its height.
-        // Mode toggles (checkboxes only). Their level sliders live below, with the
-        // 速さ/高さ/抑揚 sliders, so all the blue adjustment sliders are grouped.
+        // ツンデレ / アドレナリン are slider-only (no checkbox): center = off. Their
+        // sliders sit below with 速さ/高さ/抑揚.
         let tsun = json?["tsundere"] as? [String: Any]
         let tsunLevel = (tsun?["level"] as? Double) ?? 0.5
         let warJson = json?["war"] as? [String: Any]
         let warLevel = (warJson?["level"] as? Double) ?? 0.5
-        menu.addItem(tsundereToggleRow(on: (tsun?["enabled"] as? Bool) ?? false))
-        menu.addItem(warToggleRow(on: (warJson?["enabled"] as? Bool) ?? false))
-        menu.addItem(.separator())
 
         // VOICEVOX base prosody (speed / pitch / intonation) — only when VOICEVOX
         // is the active TTS, since these are VOICEVOX audio_query scales.
@@ -897,6 +910,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 tsDef.target = self; tsDef.representedObject = ["tsundere-pane", tty, "clear"]
                 tsDef.state = (p["tsundereSet"] as? Bool ?? false) ? .off : .on
                 sub.addItem(tsDef)
+                sub.addItem(.separator())
+                // Per-pane アドレナリン (center = off).
+                sub.addItem(disabledHeader("アドレナリン"))
+                sub.addItem(paneLevelRow(value: (p["war"] as? Double) ?? 0.5, lo: 0, hi: 1, action: #selector(paneWarChanged(_:)), id: tty))
+                let warDef = NSMenuItem(title: "強さを全体に従う", action: #selector(runItem(_:)), keyEquivalent: "")
+                warDef.target = self; warDef.representedObject = ["war-pane", tty, "clear"]
+                warDef.state = (p["warSet"] as? Bool ?? false) ? .off : .on
+                sub.addItem(warDef)
+                sub.addItem(.separator())
+                // Per-pane 読み上げ prosody.
+                sub.addItem(disabledHeader("読み上げ（速さ・高さ・抑揚）"))
+                let pros = p["prosody"] as? [String: Any] ?? [:]
+                for (key, lo, hi, dflt) in [("speed", 0.5, 1.5, 1.0), ("pitch", -0.15, 0.15, 0.0), ("intonation", 0.0, 1.5, 1.0)] {
+                    let v = (pros[key] as? Double) ?? dflt
+                    sub.addItem(paneLevelRow(value: v, lo: lo, hi: hi, action: #selector(paneProsodyChanged(_:)), id: "\(tty)\u{1}\(key)"))
+                }
+                let prosDef = NSMenuItem(title: "読み上げを全体に従う", action: #selector(runItem(_:)), keyEquivalent: "")
+                prosDef.target = self; prosDef.representedObject = ["prosody-pane", tty, "clear"]
+                prosDef.state = (p["prosodySet"] as? Bool ?? false) ? .off : .on
+                sub.addItem(prosDef)
                 sub.addItem(.separator())
                 // Per-pane voice.
                 sub.addItem(disabledHeader("声"))

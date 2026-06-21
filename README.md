@@ -212,13 +212,14 @@ It's **deterministic and offline** — phrase banks, no API, no cost. The urgenc
 A separate read-out skin: a **military ops room**. The level sets the situation, and — combined with the tsundere level (the operator's 好感度) — picks the line:
 
 ```sh
-ai-notify war on
-ai-notify war level 0.5      # 0 = 平時 (calm) · 0.5 = 戦闘中 / 第一種戦闘配置 · 1 = 危機 (short, shouted)
+ai-notify war level 0.85     # the slider's CENTER (0.5) is OFF; away from center = more intense
+ai-notify war on/off         # convenience: jump to active / center(off)
 ai-notify war test
 ```
 
 - **平時** — calm radio chatter. **戦闘中** — general quarters, urgent. **危機** — short shouts, louder and faster.
-- The **tsundere level flavors every band** (a warm デレ operator vs a harsh ツン one), so war × tsundere gives 9 distinct moods. Toggle + slider are in the menu bar too. (Tsundere mode itself can be off; its slider still acts as the affection input for war.)
+- The **tsundere level flavors every band** (a warm デレ operator vs a harsh ツン one), so war × tsundere gives 9 distinct moods.
+- Both ツンデレ and アドレナリン are **slider-only** (no on/off checkbox): the slider **center = off**. They're blue sliders in the menu bar, below 速さ/高さ/抑揚, and in the ⚙ settings window. Every per-pane submenu can override **all** of these (name, voice, volume, ツンデレ, アドレナリン, 速さ/高さ/抑揚) individually.
 
 ## ⏳ Which window, and what it's asking
 

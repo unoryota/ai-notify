@@ -384,21 +384,21 @@ const cmds = {
       }
     };
 
+    // Slider-only now (center 0.5 = off). on/off/toggle just move the level.
     if (sub === 'on' || sub === 'off' || sub === 'toggle') {
-      const enabled = sub === 'toggle' ? !ts.enabled : sub === 'on';
-      config.tsundere = { ...ts, enabled };
-      // With VOICEVOX, resolve & cache the character's ツンツン/あまあま style ids
-      // now, so fire-time skips the lookup.
-      if (enabled && config.tts === 'voicevox') {
+      const cur = readTsundereLevel() != null ? readTsundereLevel() : ts.level ?? 0.5;
+      const active = Math.abs(cur - 0.5) > 0.04;
+      const want = sub === 'toggle' ? !active : sub === 'on';
+      const next = want ? (active ? cur : 0.85) : 0.5;
+      setTsundereLevel(next);
+      if (want && config.tts === 'voicevox') {
         const sm = voicevox.resolveStyles(config.voicevox?.speaker, url);
-        if (sm) config.tsundere.styleMap = sm;
+        if (sm) {
+          config.tsundere = { ...ts, styleMap: sm };
+          writeConfig(config);
+        }
       }
-      writeConfig(config);
-      log(enabled ? '💢 ツンデレ ON（デレ⇄ツン・緊急度で口調が変化）' : 'ツンデレ OFF');
-      if (enabled) {
-        log('  既定の強さ:  ai-notify tsundere level <0=デレ 〜 1=ツン>');
-        log('  試聴:        ai-notify tsundere test');
-      }
+      log(want ? `💢 ツンデレ ON（level ${next}・中央0.5でOFF）` : 'ツンデレ OFF（中央 0.5）');
       return;
     }
     if (sub === 'level') {
@@ -442,13 +442,14 @@ const cmds = {
       return;
     }
     // status
-    const lvl = readTsundereLevel() != null ? readTsundereLevel() : ts.level;
-    log(`tsundere: ${ts.enabled ? '💢 ON' : 'OFF'}`);
-    log(`  level:        ${lvl}  (0=デレ 〜 1=ツン)`);
+    const lvl = readTsundereLevel() != null ? readTsundereLevel() : ts.level ?? 0.5;
+    const active = Math.abs(lvl - 0.5) > 0.04;
+    log(`ツンデレ: ${active ? `💢 ON (${tsundere.axisFor(lvl)})` : 'OFF（中央 0.5）'}`);
+    log(`  level:        ${lvl}  (0=デレ・0.5=OFF・1=ツン)`);
     log(`  urgencyShift: ${ts.urgencyShift !== false ? 'on' : 'off'}  (緊急度で口調を増減)`);
     log(`  volumeBoost:  ${ts.volumeBoost !== false ? 'on' : 'off'}  (重大時は音量↑)`);
     log(`  lang:         ${ts.lang || 'ja'}`);
-    if (!ts.enabled) log('\nEnable:  ai-notify tsundere on    試聴:  ai-notify tsundere test');
+    if (!active) log('\nON:  ai-notify tsundere on    試聴:  ai-notify tsundere test');
   },
 
   // Named presets: snapshot the current volume / prosody / tsundere / war and
@@ -528,35 +529,36 @@ const cmds = {
     const ts = config.tsundere || {};
     const url = config.voicevox?.url || voicevox.DEFAULT_URL;
 
+    // アドレナリン is slider-only (center 0.5 = off). on/off/toggle move the level.
     if (sub === 'on' || sub === 'off' || sub === 'toggle') {
-      const enabled = sub === 'toggle' ? !isWarEnabled() : sub === 'on';
-      setWarEnabled(enabled);
-      // Cache the VOICEVOX tsun/dere style map so fire-time skips the lookup.
-      if (enabled && config.tts === 'voicevox') {
+      const cur = readWarLevel();
+      const active = Math.abs(cur - 0.5) > 0.04;
+      const want = sub === 'toggle' ? !active : sub === 'on';
+      const next = want ? (active ? cur : 0.85) : 0.5;
+      setWarLevel(next);
+      if (want && config.tts === 'voicevox') {
         const sm = voicevox.resolveStyles(config.voicevox?.speaker, url);
         if (sm) {
           config.tsundere = { ...ts, styleMap: sm };
           writeConfig(config);
         }
       }
-      log(enabled ? '⚔️ 戦争モード ON（平時⇄戦闘⇄危機・ツンデレ好感度で口調変化）' : '戦争モード OFF');
-      if (enabled) {
-        log('  レベル:  ai-notify war level <0=平時 〜 0.5=戦闘 〜 1=危機>');
-        log('  試聴:    ai-notify war test');
-      }
+      log(want ? `⚔️ アドレナリン ON（level ${next}・中央0.5でOFF）` : 'アドレナリン OFF（中央 0.5）');
       return;
     }
+    // The slider value: 0.5 = off; intensity = distance from center (→ 危機).
+    const intensityOf = (slider) => Math.min(1, Math.abs(slider - 0.5) * 2);
     if (sub === 'level') {
       const arg = positionals[1];
-      if (arg === undefined) return log(`war level: ${readWarLevel()}  (0=平時 〜 0.5=戦闘 〜 1=危機)`);
-      return log(`⚔️ war level → ${setWarLevel(arg)}  (0=平時 〜 0.5=戦闘 〜 1=危機)`);
+      if (arg === undefined) return log(`アドレナリン slider: ${readWarLevel()}  (中央0.5=OFF・離すほど強い)`);
+      return log(`⚔️ アドレナリン slider → ${setWarLevel(arg)}  (中央0.5=OFF・離すほど強い)`);
     }
     if (sub === 'test') {
       const lang = ts.lang || 'ja';
-      const level = readWarLevel();
+      const level = intensityOf(readWarLevel());
       const aff = readTsundereLevel() != null ? readTsundereLevel() : ts.level ?? 0.5;
       const sm = config.tts === 'voicevox' ? ts.styleMap || voicevox.resolveStyles(config.voicevox?.speaker, url) : null;
-      log(`war test (level ${level} = ${war.band(level)}, 好感度 ${aff}, lang ${lang}):\n`);
+      log(`war test (intensity ${level.toFixed(2)} = ${war.band(level)}, 好感度 ${aff}, lang ${lang}):\n`);
       const rows =
         lang === 'ja'
           ? [
@@ -591,10 +593,13 @@ const cmds = {
       return;
     }
     // status
-    log(`war mode: ${isWarEnabled() ? '⚔️ ON' : 'OFF'}`);
-    log(`  level: ${readWarLevel()}  → ${war.band(readWarLevel())}  (0=平時 〜 0.5=戦闘 〜 1=危機)`);
+    const wslider = readWarLevel();
+    const wint = intensityOf(wslider);
+    const wactive = Math.abs(wslider - 0.5) > 0.04;
+    log(`アドレナリン: ${wactive ? `⚔️ ON (${war.band(wint)})` : 'OFF（中央 0.5）'}`);
+    log(`  slider: ${wslider}  → intensity ${wint.toFixed(2)}  (中央0.5=OFF)`);
     log(`  好感度 (tsundere level): ${readTsundereLevel() != null ? readTsundereLevel() : ts.level ?? 0.5}`);
-    if (!isWarEnabled()) log('\nEnable:  ai-notify war on    試聴:  ai-notify war test');
+    if (!wactive) log('\nON:  ai-notify war on    試聴:  ai-notify war test');
   },
 
   // Assign a voice to a specific pane (by tty), from the menu bar.
@@ -650,6 +655,45 @@ const cmds = {
     const v = Math.min(1, Math.max(0, Number(arg)));
     updatePaneSetting(tty, { tsundere: v });
     log(`pane ${tty}: tsundere level ${v}`);
+  },
+
+  // Per-pane アドレナリン slider (0.5=off), or `clear` to follow the global.
+  //   war-pane <tty> <0-1|clear>
+  'war-pane'() {
+    const [tty, arg] = positionals;
+    if (!tty || arg === undefined) {
+      console.error('usage: war-pane <tty> <0-1|clear>');
+      process.exit(1);
+    }
+    if (arg === 'clear') {
+      updatePaneSetting(tty, { war: null });
+      return log(`pane ${tty}: アドレナリン reset to global`);
+    }
+    const v = Math.min(1, Math.max(0, Number(arg)));
+    updatePaneSetting(tty, { war: v });
+    log(`pane ${tty}: アドレナリン ${v}`);
+  },
+
+  // Per-pane VOICEVOX prosody override, or `clear` to follow the global.
+  //   prosody-pane <tty> <speed|pitch|intonation> <value> | <tty> clear
+  'prosody-pane'() {
+    const [tty, key, val] = positionals;
+    if (!tty) {
+      console.error('usage: prosody-pane <tty> <speed|pitch|intonation> <value> | <tty> clear');
+      process.exit(1);
+    }
+    if (key === 'clear' || key === undefined) {
+      updatePaneSetting(tty, { prosody: null });
+      return log(`pane ${tty}: prosody reset to global`);
+    }
+    if (!['speed', 'pitch', 'intonation'].includes(key) || val === undefined) {
+      console.error('usage: prosody-pane <tty> <speed|pitch|intonation> <value>');
+      process.exit(1);
+    }
+    const cur = { ...(readPaneSetting(tty).prosody || {}) };
+    cur[key] = Number(val);
+    updatePaneSetting(tty, { prosody: cur });
+    log(`pane ${tty}: prosody ${key} ${cur[key]}`);
   },
 
   // Name a specific pane in the spoken read-out (set from the menu bar), or
@@ -915,10 +959,13 @@ const cmds = {
     // they ever fire a notification) merged with previously-recorded ones.
     const globalVol = readVolume() != null ? readVolume() : typeof config.volume === 'number' ? config.volume : 1;
     const tsLevel = readTsundereLevel() != null ? readTsundereLevel() : config.tsundere?.level ?? 0.5;
+    const warGlobal = readWarLevel();
+    const prosGlobal = readVoiceProsody();
     const recorded = new Map(readPanes().map((p) => [p.tty, p.label]));
     const ttys = new Set([...livePanes(), ...recorded.keys()]);
     const panes = [...ttys].map((tty) => {
       const s = readPaneSetting(tty);
+      const pros = { ...prosGlobal, ...(s.prosody || {}) };
       return {
         tty,
         label: recorded.get(tty) || tty.replace('/dev/', ''),
@@ -928,6 +975,10 @@ const cmds = {
         volumeSet: typeof s.volume === 'number',
         tsundere: typeof s.tsundere === 'number' ? s.tsundere : tsLevel,
         tsundereSet: typeof s.tsundere === 'number',
+        war: typeof s.war === 'number' ? s.war : warGlobal,
+        warSet: typeof s.war === 'number',
+        prosody: pros,
+        prosodySet: !!s.prosody,
       };
     });
     log(
