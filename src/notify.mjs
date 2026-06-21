@@ -184,10 +184,15 @@ export const emit = ({ provider = 'default', event = 'done', label = '', message
   setPaneWaiting(tty, event === 'waiting'); // waiting -> yellow menu bar status; done clears it
   const pane = readPaneSetting(tty);
 
-  // Name this pane in the read-out. An explicit per-pane name (set from the menu
-  // bar) is ALWAYS spoken; the auto-derived label (often just the working dir)
-  // is prefixed only when speakLabel is on — it's slow filler otherwise.
-  const spokenName = pane.speakName || (config.speakLabel === true && label ? label : '');
+  // Name this pane in the read-out, most-reliable identity first:
+  //   1. $AI_NOTIFY_LABEL — set in the pane's shell, inherited by the hook even
+  //      when the agent runs it detached (no tty). Always spoken: setting it is
+  //      explicit intent. The reliable way to name a pane for Claude Code.
+  //   2. pane.speakName — set from the menu bar, keyed by tty. Works only when
+  //      the hook resolves to the pane's tty (see controllingTty's tree walk).
+  //   3. the auto-derived label — only when speakLabel is on (else slow filler).
+  const envName = (process.env.AI_NOTIFY_LABEL || '').trim();
+  const spokenName = envName || pane.speakName || (config.speakLabel === true && label ? label : '');
   const speakText = spokenName ? `${spokenName}、${spokenBody}` : spokenBody;
 
   // Per-pane voice (precedence: $AI_NOTIFY_* env > this pane's pick > global).

@@ -40,18 +40,34 @@ export const isEphemeralInstall = (cliPath) => /[/\\]_npx[/\\]/.test(cliPath);
 
 export const MARKER = 'ai-notify'; // substring used to detect our own wiring
 
-// The controlling terminal of this process (e.g. "/dev/ttys010"), which is
-// stable per terminal pane — used to scope per-pane settings. null if none.
+// The controlling terminal of the agent's pane (e.g. "/dev/ttys010"), used to
+// scope per-pane settings. Returns null if none can be found.
+//
+// Agents often run the notify hook detached (Claude Code wires it `async`), so
+// the hook process itself frequently has NO controlling tty — but its parent
+// (the agent, e.g. `claude`) still owns the pane's terminal. So we walk up the
+// process tree until we find a real tty, which makes the hook resolve to the
+// SAME tty the menu bar lists the pane under (it scans the agent process).
 export const controllingTty = () => {
-  try {
-    const t = execFileSync('ps', ['-o', 'tty=', '-p', String(process.pid)], {
-      stdio: ['ignore', 'pipe', 'ignore'],
-    })
-      .toString()
-      .trim();
-    if (!t || t === '??' || t === '?') return null;
-    return t.startsWith('/dev/') ? t : `/dev/${t}`;
-  } catch {
-    return null;
+  let pid = process.pid;
+  for (let depth = 0; depth < 8 && pid > 1; depth++) {
+    try {
+      const line = execFileSync('ps', ['-o', 'tty=', '-o', 'ppid=', '-p', String(pid)], {
+        stdio: ['ignore', 'pipe', 'ignore'],
+      })
+        .toString()
+        .trim();
+      if (!line) return null;
+      // "ttys010  1234"  or  "??  1234" (no controlling tty for this pid)
+      const sp = line.lastIndexOf(' ');
+      const tty = line.slice(0, sp).trim();
+      const ppid = parseInt(line.slice(sp + 1).trim(), 10);
+      if (tty && tty !== '??' && tty !== '?') return tty.startsWith('/dev/') ? tty : `/dev/${tty}`;
+      if (!Number.isFinite(ppid) || ppid <= 1) return null;
+      pid = ppid;
+    } catch {
+      return null;
+    }
   }
+  return null;
 };
