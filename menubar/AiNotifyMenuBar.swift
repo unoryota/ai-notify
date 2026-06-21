@@ -193,8 +193,16 @@ final class PopupCard: NSObject {
     var onClick: () -> Void = {}
 
     override init() {
-        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 96),
-                          styleMask: [.borderless], backing: .buffered, defer: false)
+        // A non-activating floating panel: it receives clicks (the close button
+        // and the card's mouseDown both fire) without the background menu-bar app
+        // ever becoming active — the reliable way to make a HUD-style window
+        // clickable. A plain NSWindow drops the first click while inactive.
+        let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 300, height: 96),
+                            styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        panel.isFloatingPanel = true
+        panel.becomesKeyOnlyIfNeeded = true
+        panel.worksWhenModal = true
+        window = panel
         super.init()
         window.isOpaque = false
         window.backgroundColor = .clear
