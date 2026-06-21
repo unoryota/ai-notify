@@ -113,6 +113,20 @@ No third-party app needed. Prefer something else? There are drop-in recipes for 
 
 > Toggling works mid-run: the flag is read the next time an agent fires, so flipping it instantly affects every running agent.
 
+## 🪧 "Waiting for input" popup
+
+A stopped agent waiting on you is easy to miss across many terminals — especially in IDE terminals (WebStorm, VS Code) that can't show images or rich notifications. Turn on an **always-on-top character popup** that names the waiting pane and vanishes the moment you respond:
+
+![ai-notify waiting popup](https://raw.githubusercontent.com/unoryota/ai-notify/main/assets/popup.png)
+
+```sh
+ai-notify popup on                      # enable (also a menu bar toggle: 応答待ちポップアップ)
+ai-notify popup image ~/zundamon.png    # your own character (PNG/JPG); default is a kaomoji
+ai-notify popup off
+```
+
+It floats over every app and Space, shows `<pane name> は応答待ち！`, and lists multiple waiting panes at once. Click it to dismiss. macOS-only (needs the menu bar app installed).
+
 ## 🎙️ VOICEVOX character voices
 
 Optionally speak your notifications in [VOICEVOX](https://voicevox.hiroshiba.jp/) character voices (e.g. ずんだもん) — free, local, offline.

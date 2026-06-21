@@ -206,6 +206,31 @@ export const setPaneWaiting = (tty, waiting) => {
   writeJson(waitingPath(), all);
 };
 export const anyWaiting = () => Object.keys(readJson(waitingPath(), {})).length > 0;
+export const readWaiting = () => readJson(waitingPath(), {});
+
+// "Waiting" popup (the menu bar app shows a character that says a pane is waiting
+// for input). Toggle + optional custom character image, kept as small files the
+// Swift app reads directly — same pattern as the mute flag.
+const popupFlagPath = () => join(stateDir(), 'popup');
+const popupImagePath = () => join(stateDir(), 'popup-image');
+export const isPopupEnabled = () => existsSync(popupFlagPath());
+export const setPopupEnabled = (on) => {
+  ensureDir(stateDir());
+  if (on) writeFileSync(popupFlagPath(), '');
+  else rmSync(popupFlagPath(), { force: true });
+};
+export const getPopupImage = () => {
+  try {
+    return readFileSync(popupImagePath(), 'utf8').trim();
+  } catch {
+    return '';
+  }
+};
+export const setPopupImage = (p) => {
+  ensureDir(stateDir());
+  if (p) writeFileSync(popupImagePath(), p);
+  else rmSync(popupImagePath(), { force: true });
+};
 
 // Record this pane as active (keyed by tty). Keeps the 16 most-recent.
 export const recordPane = (tty, label) => {
