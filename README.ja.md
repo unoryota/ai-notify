@@ -66,11 +66,14 @@ ai-notify uninstall                                # 配線をきれいに削除
 **ペインの設定を1コマンドで。** エージェントを動かす端末の中でこれを実行すると、読み上げ名・声・音量・**ターミナルのタブ名**を一度に設定できます。メニュー操作は不要：
 
 ```sh
-ai-notify use api Kyoko        # 名前「api」＋声 Kyoko＋タブ名→api
-ai-notify use web Eddy 0.8     # ＋音量 0.8
-ai-notify use infra vv3        # VOICEVOX スピーカー3（例: ずんだもん）
-ai-notify use clear            # このペインをリセット
+ai-notify use api Kyoko                       # 名前「api」＋声 Kyoko＋タブ名→api
+ai-notify use web Eddy 0.8                    # ＋音量 0.8
+ai-notify use zunda ずんだもん                 # 声は VOICEVOX キャラ名で指定（vv3 でも可）
+ai-notify use エックスズンダモン ずんだもん --tab x_zunda   # 読み上げ名とタブ名を別々に
+ai-notify use clear                           # このペインをリセット
 ```
+
+`声` は `say` の名前/番号（`Kyoko`・`3`）、VOICEVOX の**キャラ名**（`ずんだもん`）、`vv<id>`（`vv3`）が使えます。`--tab` で読み上げ名と別のタブ名を付けられます。
 
 ペイン別の上書き — エージェントを起動する**前**に、その端末で `export` する：
 

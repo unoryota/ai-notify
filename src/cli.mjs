@@ -510,15 +510,28 @@ const cmds = {
   // and volume — and rename the terminal tab — in a single command, instead of
   // doing each from the menu bar. Keyed by this shell's tty (which the agent's
   // hook resolves to as well), so it just works for the agent running here.
-  //   use <name> [voice] [volume]   |   use clear
-  // voice: a system voice name/number (e.g. Kyoko, 3) or VOICEVOX as vv<id> (vv3).
+  //   use <name> [voice] [volume] [--tab <title>]   |   use clear
+  // voice: a system voice name/number (Kyoko, 3), a VOICEVOX character name
+  //        (ずんだもん), or vv<id> (vv3).  --tab: separate tab title (default <name>).
   use() {
-    const [name, voiceArg, volArg] = positionals;
     const tty = controllingTty();
     if (!tty) {
       console.error('`ai-notify use` must run inside a terminal pane (no controlling tty found).');
       process.exit(1);
     }
+    // Pull --tab and its value out first, so the tab title (any token) is never
+    // mistaken for the voice or volume positional.
+    const rest = args.slice(1);
+    let tabTitle;
+    const pos = [];
+    for (let i = 0; i < rest.length; i++) {
+      if (rest[i] === '--tab') {
+        if (rest[i + 1] && !rest[i + 1].startsWith('--')) tabTitle = rest[++i];
+        continue;
+      }
+      if (!rest[i].startsWith('--')) pos.push(rest[i]);
+    }
+    const [name, voiceArg, volArg] = pos;
     if (!name || name === 'clear' || name === 'reset') {
       updatePaneSetting(tty, { speakName: null, tts: null, voice: null, speaker: null, volume: null });
       process.stdout.write('\u001b]0;\u0007'); // clear the tab title (best-effort)
@@ -534,16 +547,28 @@ const cmds = {
         patch.speaker = Number(vv[1]);
         patch.voice = null;
         voiceLabel = `VOICEVOX ${vv[1]}`;
+      } else if (resolveVoice(voiceArg, curatedVoices(10))) {
+        patch.tts = 'say';
+        patch.voice = resolveVoice(voiceArg, curatedVoices(10));
+        patch.speaker = null;
+        voiceLabel = patch.voice;
       } else {
-        const picked = resolveVoice(voiceArg, curatedVoices(10));
-        if (!picked) {
-          console.error(`unknown voice: ${voiceArg}   (names/numbers: ai-notify voice;  VOICEVOX: vv<id>)`);
+        // A VOICEVOX character by name (e.g. ずんだもん) — resolve via the engine.
+        const url = readConfig().voicevox?.url || voicevox.DEFAULT_URL;
+        const chars = voicevox.isAvailable(url) ? voicevox.listCharacters(url) : [];
+        const hit = chars.find((c) => c.name === voiceArg) || chars.find((c) => c.name.includes(voiceArg));
+        if (!hit) {
+          console.error(
+            `unknown voice: ${voiceArg}\n` +
+              '  say voice: a name/number from `ai-notify voice` (e.g. Kyoko, 3)\n' +
+              '  VOICEVOX:  a character name (e.g. ずんだもん; engine must be running) or vv<id> (vv3)'
+          );
           process.exit(1);
         }
-        patch.tts = 'say';
-        patch.voice = picked;
-        patch.speaker = null;
-        voiceLabel = picked;
+        patch.tts = 'voicevox';
+        patch.speaker = hit.id;
+        patch.voice = null;
+        voiceLabel = `${hit.name} (VOICEVOX ${hit.id})`;
       }
     }
     if (volArg !== undefined) {
@@ -552,14 +577,16 @@ const cmds = {
     }
 
     updatePaneSetting(tty, patch);
-    // Rename this terminal tab/window to the pane name (best-effort — a shell
-    // that rewrites the title on each prompt may override it after you return).
-    process.stdout.write(`\u001b]0;${name}\u0007`);
+    // Rename this terminal tab/window (best-effort — a shell that rewrites the
+    // title on each prompt may override it after you return to the prompt).
+    const tab = tabTitle || name;
+    process.stdout.write(`\u001b]0;${tab}\u0007`);
 
     const bits = [`name ${name}`];
     if (voiceLabel) bits.push(`voice ${voiceLabel}`);
     if (patch.volume !== undefined) bits.push(`volume ${patch.volume}`);
-    log(`✓ ${bits.join('  ·  ')}  ·  tab renamed`);
+    bits.push(`tab ${tab}`);
+    log(`✓ ${bits.join('  ·  ')}`);
   },
 
   // Get/set the VOICEVOX base prosody (the normal-tone scales the menu bar
@@ -766,7 +793,7 @@ function printHelp() {
 Usage:
   ai-notify init [--dry-run] [--only claude,codex]   wire detected agents
   ai-notify uninstall [--only ...]                   remove wiring
-  ai-notify use <name> [voice] [vol]                 name THIS pane + set its voice + rename the tab, at once
+  ai-notify use <name> [voice] [vol] [--tab <t>]     name THIS pane + voice + tab, at once (voice: Kyoko | 3 | ずんだもん | vv3)
   ai-notify toggle | on | off | status               control the mute switch
   ai-notify volume [0.0-2.0]                          get/set output volume
   ai-notify voice [number|name|preview|default]      pick the spoken voice

@@ -67,11 +67,14 @@ ai-notify uninstall                                # cleanly remove wiring
 **Set up a pane in one command.** Run this *in* the terminal where the agent runs — it names the pane (spoken in the read-out), picks its voice, sets its volume, and renames the terminal tab, all at once. No menu hopping:
 
 ```sh
-ai-notify use api Kyoko        # name "api" + voice Kyoko + tab → "api"
-ai-notify use web Eddy 0.8     # + volume 0.8
-ai-notify use infra vv3        # VOICEVOX speaker 3 (e.g. ずんだもん)
-ai-notify use clear            # reset this pane
+ai-notify use api Kyoko                       # name "api" + voice Kyoko + tab → "api"
+ai-notify use web Eddy 0.8                    # + volume 0.8
+ai-notify use zunda ずんだもん                 # voice by VOICEVOX character name (or vv3)
+ai-notify use エックスズンダモン ずんだもん --tab x_zunda   # spoken name ≠ tab title
+ai-notify use clear                           # reset this pane
 ```
+
+`voice` is a `say` name/number (`Kyoko`, `3`), a VOICEVOX **character name** (`ずんだもん`), or `vv<id>` (`vv3`). `--tab` sets a different terminal tab title from the spoken name.
 
 Per-window overrides — `export` these in a terminal *before* launching the agent:
 
