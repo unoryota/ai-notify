@@ -90,6 +90,33 @@ export const setTsundereLevel = (v) => {
   return n;
 };
 
+// --- War mode --------------------------------------------------------------
+// A separate read-out skin (military ops room). enabled flag + 0–1 level:
+// min 平時 / mid 戦闘中 / max 危機的. Combined with the tsundere level for the
+// operator's 好感度. Same small-file pattern as the mute flag / tsundere level.
+const warFlagPath = () => join(stateDir(), 'war-enabled');
+const warLevelPath = () => join(stateDir(), 'war-level');
+export const isWarEnabled = () => existsSync(warFlagPath());
+export const setWarEnabled = (on) => {
+  ensureDir(stateDir());
+  if (on) writeFileSync(warFlagPath(), '');
+  else rmSync(warFlagPath(), { force: true });
+};
+export const readWarLevel = () => {
+  try {
+    const v = parseFloat(readFileSync(warLevelPath(), 'utf8'));
+    return Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 0.5;
+  } catch {
+    return 0.5;
+  }
+};
+export const setWarLevel = (v) => {
+  const n = Math.min(1, Math.max(0, Number(v)));
+  ensureDir(stateDir());
+  writeFileSync(warLevelPath(), String(n));
+  return n;
+};
+
 // --- VOICEVOX base prosody -------------------------------------------------
 // User-tunable BASE scales for the VOICEVOX read-out — the values used at the
 // NORMAL tone; tsundere tones nudge from here. Written by the menu bar sliders /

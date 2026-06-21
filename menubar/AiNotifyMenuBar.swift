@@ -552,6 +552,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return item
     }
 
+    // War mode on/off checkbox + 平時⇄危機 slider (level 0–1). Separate axis from
+    // tsundere; the tsundere level flavors it.
+    private func warToggleRow(on: Bool) -> NSMenuItem {
+        let row = NSView(frame: NSRect(x: 0, y: 0, width: 220, height: 24))
+        let btn = NSButton(checkboxWithTitle: "戦争モード", target: self, action: #selector(warToggled(_:)))
+        btn.frame = NSRect(x: 12, y: 2, width: 196, height: 20)
+        btn.state = on ? .on : .off
+        row.addSubview(btn)
+        let item = NSMenuItem(); item.view = row
+        return item
+    }
+
+    private func warRow(value: Double) -> NSMenuItem {
+        let row = NSView(frame: NSRect(x: 0, y: 0, width: 220, height: 26))
+        let left = NSTextField(labelWithString: "平時")
+        left.frame = NSRect(x: 12, y: 5, width: 30, height: 16)
+        left.font = .systemFont(ofSize: 10); left.textColor = .secondaryLabelColor
+        let slider = NSSlider(value: value, minValue: 0, maxValue: 1, target: self, action: #selector(warLevelChanged(_:)))
+        slider.frame = NSRect(x: 46, y: 3, width: 128, height: 20)
+        slider.isContinuous = false
+        slider.trackFillColor = NSColor(srgbRed: 0.85, green: 0.2, blue: 0.15, alpha: 1) // war red
+        let right = NSTextField(labelWithString: "危機")
+        right.frame = NSRect(x: 178, y: 5, width: 30, height: 16)
+        right.font = .systemFont(ofSize: 10); right.textColor = .secondaryLabelColor
+        row.addSubview(left); row.addSubview(slider); row.addSubview(right)
+        let item = NSMenuItem(); item.view = row
+        return item
+    }
+
+    @objc private func warToggled(_ b: NSButton) { State.cli(["war", "toggle"]) }
+    @objc private func warLevelChanged(_ s: NSSlider) { State.cli(["war", "level", String(format: "%.2f", s.doubleValue)]) }
+
     // representedObject is the full CLI arg array to run.
     @objc private func runItem(_ item: NSMenuItem) {
         if let cmd = item.representedObject as? [String] { State.cli(cmd) }
@@ -583,6 +615,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let tsunLevel = (tsun?["level"] as? Double) ?? 0.5
         menu.addItem(tsundereToggleRow(on: tsunOn))
         menu.addItem(tsundereRow(value: tsunLevel))
+
+        // War mode: checkbox + 平時⇄危機 slider (a separate read-out skin).
+        let warJson = json?["war"] as? [String: Any]
+        menu.addItem(warToggleRow(on: (warJson?["enabled"] as? Bool) ?? false))
+        menu.addItem(warRow(value: (warJson?["level"] as? Double) ?? 0.5))
         menu.addItem(.separator())
 
         // VOICEVOX base prosody (speed / pitch / intonation) — only when VOICEVOX

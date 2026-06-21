@@ -18,12 +18,15 @@ import {
   readTsundereLevel,
   readVoiceProsody,
   nextCounter,
+  isWarEnabled,
+  readWarLevel,
 } from './state.mjs';
 import { controllingTty } from './util.mjs';
 import { translate } from './translate.mjs';
 import { highlightWaiting, clearHighlight } from './highlight.mjs';
 import * as voicevox from './voicevox.mjs';
 import * as tsundere from './tsundere.mjs';
+import * as war from './war.mjs';
 
 const platform = process.platform; // 'darwin' | 'linux' | 'win32'
 
@@ -234,29 +237,44 @@ export const emit = ({ provider = 'default', event = 'done', label = '', message
   let outText = speakText;
   let outVol = vol;
   let outSpeaker = speaker;
-  let speakTone = 'normal'; // delivery contour; tsundere sets it to tsun/dere
+  let speakTone = 'normal'; // delivery contour; tsundere/war set it to tsun/dere
+  let warActive = false;
+  let warLevel = 0.5;
   const ts = config.tsundere;
-  if (ts && ts.enabled) {
-    const tier = tsundere.classifyUrgency(event, message, fullBody);
+  const tier = tsundere.classifyUrgency(event, message, fullBody);
+  // The tsundere LEVEL doubles as the operator's 好感度 for war mode, so resolve
+  // it even when tsundere skinning is off.
+  const tsBaseLevel = (() => {
     const envLevel = parseFloat(process.env.AI_NOTIFY_TSUNDERE_LEVEL);
-    const baseLevel = Number.isFinite(envLevel)
-      ? Math.min(1, Math.max(0, envLevel))
-      : typeof pane.tsundere === 'number'
-        ? pane.tsundere
-        : readTsundereLevel() != null
-          ? readTsundereLevel()
-          : typeof ts.level === 'number'
-            ? ts.level
-            : 0.5;
-    const eff = tsundere.effectiveLevel(baseLevel, tier, ts.urgencyShift !== false);
+    if (Number.isFinite(envLevel)) return Math.min(1, Math.max(0, envLevel));
+    if (typeof pane.tsundere === 'number') return pane.tsundere;
+    const f = readTsundereLevel();
+    if (f != null) return f;
+    return typeof ts?.level === 'number' ? ts.level : 0.5;
+  })();
+
+  if (isWarEnabled()) {
+    // War mode skins the read-out (ops room); the tsundere level flavors it.
+    warActive = true;
+    warLevel = readWarLevel();
+    const eff = tsundere.effectiveLevel(tsBaseLevel, tier, ts?.urgencyShift !== false);
+    speakTone = tsundere.axisFor(eff);
+    outVol = Math.min(2, Math.max(0, vol * war.volumeMul(warLevel, tier)));
+    outText = war.wrap(spokenBody, warLevel, eff, ts?.lang || 'ja', nextCounter('war'));
+    if (spokenName) outText = joinName(spokenName, outText);
+    if (tts === 'voicevox') {
+      const sm = ts?.styleMap || voicevox.resolveStyles(outSpeaker, config.voicevox?.url);
+      if (sm && sm[speakTone] != null) outSpeaker = sm[speakTone];
+    }
+  } else if (ts && ts.enabled) {
+    const eff = tsundere.effectiveLevel(tsBaseLevel, tier, ts.urgencyShift !== false);
     speakTone = tsundere.axisFor(eff);
     outVol = Math.min(2, Math.max(0, vol * tsundere.volumeMul(tier, ts.volumeBoost !== false)));
     outText = tsundere.wrap(spokenBody, eff, tier, ts.lang || 'ja', nextCounter('tsundere'));
     if (spokenName) outText = joinName(spokenName, outText);
     if (tts === 'voicevox') {
       const sm = ts.styleMap || voicevox.resolveStyles(outSpeaker, config.voicevox?.url);
-      const axis = tsundere.axisFor(eff);
-      if (sm && sm[axis] != null) outSpeaker = sm[axis];
+      if (sm && sm[speakTone] != null) outSpeaker = sm[speakTone];
     }
   }
 
@@ -265,7 +283,8 @@ export const emit = ({ provider = 'default', event = 'done', label = '', message
     if (config.speak && outVol > 0) {
       let spoken = false;
       if (tts === 'voicevox') {
-        const prosody = tsundere.effectiveProsody(speakTone, readVoiceProsody());
+        let prosody = tsundere.effectiveProsody(speakTone, readVoiceProsody());
+        if (warActive) prosody = war.effectiveProsody(warLevel, prosody); // band scale on top
         spoken = voicevox.speak(outText, outSpeaker, config.voicevox?.url, outVol, undefined, prosody);
       }
       if (!spoken) speak(outText, voice, outVol, speakTone); // OS `say` (also the VOICEVOX fallback)

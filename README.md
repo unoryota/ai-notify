@@ -206,6 +206,19 @@ ai-notify tsundere test          # hear T3/T2/T1/T0 samples
 
 It's **deterministic and offline** — phrase banks, no API, no cost. The urgency is a keyword heuristic over the agent's text (so it's best-effort, not a real severity signal), and the desktop banner stays factual. With **VOICEVOX** the level also picks the character's own **ツンツン / あまあま** style, so the same character actually *sounds* harsher or sweeter. `lang` supports `ja` and `en`.
 
+## ⚔️ War mode (optional, fun)
+
+A separate read-out skin: a **military ops room**. The level sets the situation, and — combined with the tsundere level (the operator's 好感度) — picks the line:
+
+```sh
+ai-notify war on
+ai-notify war level 0.5      # 0 = 平時 (calm) · 0.5 = 戦闘中 / 第一種戦闘配置 · 1 = 危機 (short, shouted)
+ai-notify war test
+```
+
+- **平時** — calm radio chatter. **戦闘中** — general quarters, urgent. **危機** — short shouts, louder and faster.
+- The **tsundere level flavors every band** (a warm デレ operator vs a harsh ツン one), so war × tsundere gives 9 distinct moods. Toggle + slider are in the menu bar too. (Tsundere mode itself can be off; its slider still acts as the affection input for war.)
+
 ## ⏳ Which window, and what it's asking
 
 Each notification is titled with the window label — `⏳ <label>` when an agent is waiting, `✓ <label>` when it's done — and the body says **what** (the translated prompt, or a summary of what was done). Set a short `AI_NOTIFY_LABEL` per pane and you can tell ten terminals apart at a glance.

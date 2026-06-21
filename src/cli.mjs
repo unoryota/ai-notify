@@ -13,6 +13,7 @@ import { translate } from './translate.mjs';
 import { diagnose as highlightDiagnose, clearHighlight } from './highlight.mjs';
 import * as voicevox from './voicevox.mjs';
 import * as tsundere from './tsundere.mjs';
+import * as war from './war.mjs';
 import {
   isMuted,
   setMuted,
@@ -45,6 +46,10 @@ import {
   getNotifyKinds,
   setNotifyKind,
   isNotifyKindEnabled,
+  isWarEnabled,
+  setWarEnabled,
+  readWarLevel,
+  setWarLevel,
 } from './state.mjs';
 import { resolve as resolvePath, join as pathJoin } from 'node:path';
 
@@ -446,6 +451,84 @@ const cmds = {
     if (!ts.enabled) log('\nEnable:  ai-notify tsundere on    試聴:  ai-notify tsundere test');
   },
 
+  // War mode: a military-ops-room read-out skin. Level: min 平時 / mid 戦闘中 /
+  // max 危機的. Combined with the tsundere level for the operator's 好感度.
+  //   war [on|off|toggle|level <0-1>|test|status]
+  war() {
+    const sub = positionals[0] || 'status';
+    const config = readConfig();
+    const ts = config.tsundere || {};
+    const url = config.voicevox?.url || voicevox.DEFAULT_URL;
+
+    if (sub === 'on' || sub === 'off' || sub === 'toggle') {
+      const enabled = sub === 'toggle' ? !isWarEnabled() : sub === 'on';
+      setWarEnabled(enabled);
+      // Cache the VOICEVOX tsun/dere style map so fire-time skips the lookup.
+      if (enabled && config.tts === 'voicevox') {
+        const sm = voicevox.resolveStyles(config.voicevox?.speaker, url);
+        if (sm) {
+          config.tsundere = { ...ts, styleMap: sm };
+          writeConfig(config);
+        }
+      }
+      log(enabled ? '⚔️ 戦争モード ON（平時⇄戦闘⇄危機・ツンデレ好感度で口調変化）' : '戦争モード OFF');
+      if (enabled) {
+        log('  レベル:  ai-notify war level <0=平時 〜 0.5=戦闘 〜 1=危機>');
+        log('  試聴:    ai-notify war test');
+      }
+      return;
+    }
+    if (sub === 'level') {
+      const arg = positionals[1];
+      if (arg === undefined) return log(`war level: ${readWarLevel()}  (0=平時 〜 0.5=戦闘 〜 1=危機)`);
+      return log(`⚔️ war level → ${setWarLevel(arg)}  (0=平時 〜 0.5=戦闘 〜 1=危機)`);
+    }
+    if (sub === 'test') {
+      const lang = ts.lang || 'ja';
+      const level = readWarLevel();
+      const aff = readTsundereLevel() != null ? readTsundereLevel() : ts.level ?? 0.5;
+      const sm = config.tts === 'voicevox' ? ts.styleMap || voicevox.resolveStyles(config.voicevox?.speaker, url) : null;
+      log(`war test (level ${level} = ${war.band(level)}, 好感度 ${aff}, lang ${lang}):\n`);
+      const rows =
+        lang === 'ja'
+          ? [
+              { tier: 'T3', body: 'ビルドが失敗' },
+              { tier: 'T2', body: '許可待ち' },
+              { tier: 'T1', body: '3ファイルを更新' },
+              { tier: 'T0', body: 'テスト全部パス' },
+            ]
+          : [
+              { tier: 'T3', body: 'the build failed' },
+              { tier: 'T2', body: 'waiting for approval' },
+              { tier: 'T1', body: 'updated 3 files' },
+              { tier: 'T0', body: 'all tests passed' },
+            ];
+      for (const s of rows) {
+        const eff = tsundere.effectiveLevel(aff, s.tier, ts.urgencyShift !== false);
+        const text = war.wrap(s.body, level, eff, lang, 0);
+        const mul = war.volumeMul(level, s.tier);
+        const tone = tsundere.axisFor(eff);
+        log(`  [${s.tier} ×${mul.toFixed(2)} ${tone}] ${text}`);
+        if (sm) {
+          const speaker = sm[tone] ?? config.voicevox?.speaker;
+          voicevox.speak(text, speaker, url, mul, undefined, war.effectiveProsody(level, tsundere.effectiveProsody(tone, readVoiceProsody())));
+        } else {
+          try {
+            execFileSync('say', config.voice ? ['-v', config.voice, tsundere.decorateForSay(text, tone)] : [tsundere.decorateForSay(text, tone)], { stdio: 'ignore' });
+          } catch {
+            /* non-mac / no say */
+          }
+        }
+      }
+      return;
+    }
+    // status
+    log(`war mode: ${isWarEnabled() ? '⚔️ ON' : 'OFF'}`);
+    log(`  level: ${readWarLevel()}  → ${war.band(readWarLevel())}  (0=平時 〜 0.5=戦闘 〜 1=危機)`);
+    log(`  好感度 (tsundere level): ${readTsundereLevel() != null ? readTsundereLevel() : ts.level ?? 0.5}`);
+    if (!isWarEnabled()) log('\nEnable:  ai-notify war on    試聴:  ai-notify war test');
+  },
+
   // Assign a voice to a specific pane (by tty), from the menu bar.
   //   voice-pane <tty> voicevox <id> | say <name> | clear
   'voice-pane'() {
@@ -786,6 +869,7 @@ const cmds = {
         voices,
         panes,
         tsundere: { enabled: !!config.tsundere?.enabled, level: tsLevel },
+        war: { enabled: isWarEnabled(), level: readWarLevel() },
         tts: config.tts || 'say',
         prosody: readVoiceProsody(),
         prosodyRange: VOICE_PROSODY_RANGE,
@@ -948,6 +1032,7 @@ Usage:
   ai-notify voice [number|name|preview|default]      pick the spoken voice
   ai-notify voicevox [setup|on <id>|off|speakers|test]  speak in VOICEVOX character voices
   ai-notify tsundere [on|off|level <0-1>|test|status]   tsundere persona (ツン⇄デレ by urgency)
+  ai-notify war [on|off|level <0-1>|test|status]        war mode (平時⇄戦闘⇄危機; tsundere level = 好感度)
   ai-notify voice-prosody [speed|pitch|intonation <v>|reset]  VOICEVOX read-out tuning
   ai-notify menubar [install|uninstall|status]       native menu bar bell (macOS)
   ai-notify notify [<kind> on|off]                   which events alert: input|permission|info|done|subagent-done
