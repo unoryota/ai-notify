@@ -394,13 +394,13 @@ export const DEFAULT_CONFIG = {
   // Tsundere mode: skin the SPOKEN read-out with a tsundere persona whose
   // harshness (ツン) ⇄ sweetness (デレ) tracks the event's urgency — high-urgency
   // failures get a louder ツン scolding, clean passes get a デレ "good job".
-  // Off by default. `level` is the baseline 0 (デレ) – 1 (ツン); the menu bar
-  // slider / `ai-notify tsundere level` write a state file that overrides it.
-  // With VOICEVOX, the level also picks the character's ツンツン/あまあま style
-  // (cached in `styleMap`). No API, no cost — deterministic phrase banks.
+  // Off by default. `level` is BIPOLAR: 0 (デレデレ) … 0.5 (off, center) … 1 (極寒
+  // ツン); the menu bar slider / `ai-notify tsundere level` write a state file that
+  // overrides it. With VOICEVOX, the level also picks the character's ツンツン/
+  // あまあま style (cached in `styleMap`). No API, no cost — deterministic banks.
   tsundere: {
     enabled: false,
-    level: 0, // 0 = off (left); rises to MAX (cold) on the right
+    level: 0.5, // 0.5 = off (center); left → デレ(端=デレデレ) / right → ツン(端=極寒)
     urgencyShift: true, // modulate the level by the event's urgency
     volumeBoost: true, // louder on high-urgency events
     lang: 'ja', // phrase bank language (ja | en)

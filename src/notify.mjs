@@ -253,17 +253,16 @@ export const emit = ({ provider = 'default', event = 'done', label = '', message
     if (typeof pane.tsundere === 'number') return pane.tsundere;
     const f = readTsundereLevel();
     if (f != null) return f;
-    return typeof ts.level === 'number' ? ts.level : 0; // 0 = off (left)
+    return typeof ts.level === 'number' ? ts.level : 0.5; // 0.5 = off (center)
   })();
-  // Both sliders are MONOTONIC: left/0 = OFF, rising to MAX on the right.
-  //   ツンデレ    : 0 off → mild → ツン → 極寒(cold, デレ0) at the far right
-  //   アドレナリン: 0 off (平時) → 危機 at the far right
-  // The harsher the slider, the colder the line; urgency only sets VOLUME and
-  // WHICH line is picked, never the persona itself.
+  // ツンデレ is a BIPOLAR slider: CENTER (0.5) = OFF; slide LEFT for デレ (far-left
+  //   = あまあま デレデレ), RIGHT for ツン (far-right = 極寒 デレ0). アドレナリン stays
+  //   monotonic: 0 off (平時) → 危機 at the far right. The SLIDER fixes the persona;
+  //   urgency only sets VOLUME and WHICH line is picked, never the tone.
   const warSlider = typeof pane.war === 'number' ? pane.war : readWarLevel();
-  const tsundereActive = tsLevel > 0.04;
-  // VOICEVOX style: ツンツン once past the mild zone, else ノーマル.
-  const tsStyle = tsLevel >= 0.35 ? 'tsun' : 'normal';
+  const tsundereActive = !tsundere.isTsundereOff(tsLevel);
+  // VOICEVOX speaking style follows the slider side: ツンツン (right) / あまあま (left) / ノーマル.
+  const tsStyle = tsundere.axisFor(tsLevel);
 
   if (warSlider > 0.04) {
     warActive = true;

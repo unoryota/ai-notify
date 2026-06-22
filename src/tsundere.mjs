@@ -53,10 +53,22 @@ export const volumeMul = (tier, volumeBoost = true) => (volumeBoost ? VOLMUL[tie
 // tone and the VOICEVOX style pick.
 export const axisFor = (eff) => (eff >= 0.6 ? 'tsun' : eff <= 0.4 ? 'dere' : 'normal');
 
-// The tsundere slider is MONOTONIC: left/0 = off, and it gets harsher to the
-// right — mild (normal) → classic ツン → genuinely COLD (デレ0) at the far end.
-// No デレ side. The VOICEVOX style is ツンツン above the mild zone.
-export const phraseTone = (level) => (level >= 0.7 ? 'cold' : level >= 0.35 ? 'tsun' : 'normal');
+// The tsundere slider is BIPOLAR with OFF in the CENTER (0.5). Slide LEFT for デレ
+// (warmer; the far-left end is あまあま デレデレ), RIGHT for ツン (colder; the
+// far-right end is 極寒 デレ0). A small deadzone around the center reads as OFF, so
+// you can reach BOTH extremes from one slider.
+export const TSUNDERE_OFF = 0.5;
+export const OFF_DEADZONE = 0.06;
+export const isTsundereOff = (level) => !Number.isFinite(level) || Math.abs(level - TSUNDERE_OFF) <= OFF_DEADZONE;
+
+// Phrase-bank tone for a slider level — finer than the 3-way axisFor. Five steps,
+// so the slider is genuinely graded ("刻め") rather than a hard デレ/ツン flip:
+//   デレデレ ← デレ ← (OFF center) → ツン → 極寒
+export const phraseTone = (level) => {
+  if (isTsundereOff(level)) return 'normal';
+  if (level < TSUNDERE_OFF) return level <= 0.16 ? 'deredere' : 'dere'; // left = デレ side
+  return level >= 0.86 ? 'cold' : 'tsun'; // right = ツン side
+};
 
 // --- Phrase banks ----------------------------------------------------------
 // BANK[lang][tone] = { <tier>: [...], default: [...] }. `{body}` is the task
@@ -165,6 +177,30 @@ const BANK = {
         '{body}。…うん、おつかれさま。',
       ],
     },
+    // デレデレ: 最左端。あまあま全開・素直すぎ・甘えん坊。隠す気ゼロ（SFW）。
+    deredere: {
+      T3: [
+        'わわっ、{body}…！？だ、大丈夫、わたしがついてるから、ぜったい一緒に直そ…！',
+        '{body}しちゃったの…？ね、ひとりにしないよ。いっしょに直そ、ね？',
+        '{body}だぁ…。でもでも平気だよ、あなたなら絶対できる、わたし信じてる…！',
+      ],
+      T2: [
+        'ねぇねぇ{body}だよ…！あなたの答え、ずーっとここで待ってるからね。',
+        '{body}だって…！ゆっくりでいいよ、わたしずっとそばにいるから。',
+        '{body}みたい…！どっちでも、あなたが選んだならわたし大賛成だよ。',
+      ],
+      T1: [
+        '{body}できたぁ…！えらいえらい、だいすき、ほんとにえらいよ…！',
+        '{body}だよ！…ふへへ、やっぱりあなた最高、ぎゅーってしたい…！',
+        '{body}、おしまい！…がんばったね、わたしまで嬉しくなっちゃう。',
+      ],
+      T0: [
+        'やったーっ{body}！！すごいすごいすごい！だいすき、大好きー…！',
+        'うわぁん{body}だって…！天才！わたしの自慢のあなただよ…！',
+        '{body}〜！えへへっ、ぎゅーってさせて？嬉しすぎるよぉ…！',
+      ],
+      default: ['{body}…！だいすき、よくがんばったね…！', '{body}！…えへへ、いっしょに喜ぼ？'],
+    },
   },
   en: {
     cold: {
@@ -240,6 +276,30 @@ const BANK = {
         "{body}. ...Good job, okay?",
       ],
     },
+    // deredere: the far-left end — openly mushy, clingy, zero attempt to hide it.
+    deredere: {
+      T3: [
+        "Oh no oh no, {body}...! It's okay, I'm right here — we'll fix it together, I promise!",
+        "{body}...? I won't leave you, okay? Let's do it side by side.",
+        "{body}, aw... but you can totally do it — I believe in you so much!",
+      ],
+      T2: [
+        "Hey hey, {body}! I'll be right here waiting for you, always, okay?",
+        "{body}! Take all the time you need — I'm right beside you.",
+        "{body}, looks like! Whatever you pick, I'm a hundred percent with you!",
+      ],
+      T1: [
+        "{body}, all done! So proud of you — you're amazing, really!",
+        "{body}! Hehe, you're the best, I just wanna hug you!",
+        "{body}! ...You worked so hard, it makes me happy too!",
+      ],
+      T0: [
+        "Yaaay, {body}!! Amazing, amazing! I love it — love you!",
+        "{body}?! You're a genius! I'm so proud of you!",
+        "{body}~! Hehe, can I hug you? I'm just SO happy!",
+      ],
+      default: ["{body}...! Love it — you did so well!", "{body}! ...Hehe, let's celebrate together!"],
+    },
   },
 };
 
@@ -279,6 +339,7 @@ const PROSODY = {
   tsun: { say: { rate: 16, pbas: 3, pmod: 3 }, vv: { speed: 1.06, pitch: 0.0, intonation: 1.2 }, espeak: { pitch: 56, speed: 190 } },
   normal: { say: { rate: 0, pbas: 0, pmod: 2 }, vv: { speed: 1.0, pitch: 0.0, intonation: 1.0 }, espeak: { pitch: 50, speed: 175 } },
   dere: { say: { rate: -12, pbas: 1, pmod: 4 }, vv: { speed: 0.96, pitch: 0.0, intonation: 1.1 }, espeak: { pitch: 46, speed: 160 } },
+  deredere: { say: { rate: -18, pbas: 2, pmod: 5 }, vv: { speed: 0.92, pitch: 0.0, intonation: 1.15 }, espeak: { pitch: 44, speed: 150 } },
 };
 
 export const prosodyFor = (tone) => PROSODY[tone] || PROSODY.normal;

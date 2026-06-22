@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { classifyUrgency, effectiveLevel, volumeMul, axisFor, wrap } from '../src/tsundere.mjs';
+import { classifyUrgency, effectiveLevel, volumeMul, axisFor, wrap, phraseTone, isTsundereOff } from '../src/tsundere.mjs';
 
 test('classifyUrgency: failures are critical', () => {
   assert.equal(classifyUrgency('done', 'Build failed: TypeError'), 'T3');
@@ -58,4 +58,27 @@ test('wrap: rotation varies the phrase for repeated input', () => {
 
 test('wrap: unsupported language returns the body unchanged', () => {
   assert.equal(wrap('done', 0.9, 'T3', 'fr', 0), 'done');
+});
+
+test('phraseTone: bipolar — both extremes reachable, center is off', () => {
+  // center deadzone = off (neutral)
+  assert.equal(phraseTone(0.5), 'normal');
+  assert.ok(isTsundereOff(0.5));
+  assert.ok(isTsundereOff(0.47));
+  // left side → デレ, far-left → デレデレ (max sweet, must stay reachable)
+  assert.equal(phraseTone(0.3), 'dere');
+  assert.equal(phraseTone(0.0), 'deredere');
+  // right side → ツン, far-right → 極寒 cold (no hidden warmth)
+  assert.equal(phraseTone(0.7), 'tsun');
+  assert.equal(phraseTone(1.0), 'cold');
+  // not off once you leave the center deadzone
+  assert.ok(!isTsundereOff(0.0));
+  assert.ok(!isTsundereOff(1.0));
+});
+
+test('wrap: far-left is openly デレデレ, far-right is icy 極寒', () => {
+  const deredere = wrap('テスト全部パス', 0.0, 'T0', 'ja', 0);
+  const cold = wrap('テスト全部パス', 1.0, 'T0', 'ja', 0);
+  assert.match(deredere, /だいすき|大好き|すごい/); // gushing
+  assert.match(cold, /で、それが何か|当たり前|当然/); // icy, no warmth
 });

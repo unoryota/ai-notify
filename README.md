@@ -202,7 +202,7 @@ Key-less and no cost (one HTTP request; falls back to a localized template offli
 
 ## 💢 Tsundere mode (optional, fun)
 
-Give the spoken read-out a tsundere persona. The slider runs **left (0) = off → right = MAX**: raise it and the tone gets harsher — mild → classic ツン (hidden warmth) → genuinely **cold** デレ0 at the far right ("…and? so what?", no warmth left).
+Give the spoken read-out a tsundere persona. The slider is **bipolar with OFF in the center (0.5)**: slide **left for デレ** (warm — the far-left end gushes **デレデレ**), **right for ツン** (harsh — the far-right end is a genuinely **cold** デレ0, "…and? so what?"). Five graded steps: デレデレ ← デレ ← (off) → ツン → 極寒.
 
 ```sh
 ai-notify tsundere level 0.7     # 0 = デレ … 0.5 = off … 1 = ツン; the menu bar has a slider
