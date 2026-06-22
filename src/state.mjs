@@ -90,10 +90,10 @@ export const setTsundereLevel = (v) => {
   return n;
 };
 
-// --- War mode --------------------------------------------------------------
-// A separate read-out skin (military ops room). enabled flag + 0–1 level:
-// min 平時 / mid 戦闘中 / max 危機的. Combined with the tsundere level for the
-// operator's 好感度. Same small-file pattern as the mute flag / tsundere level.
+// --- 心理的安全性 (psychological safety) — internally "war" -------------------
+// A separate read-out skin. master ON/OFF flag + a BIPOLAR 0–1 level whose CENTER
+// (0.5) is OFF: left → スパルタ/軍隊, right → ホワイト企業/優しい. (Internal key names
+// predate the rename; same small-file pattern as the mute flag / tsundere level.)
 const warFlagPath = () => join(stateDir(), 'war-enabled');
 const warLevelPath = () => join(stateDir(), 'war-level');
 export const isWarEnabled = () => existsSync(warFlagPath());
@@ -103,12 +103,12 @@ export const setWarEnabled = (on) => {
   else rmSync(warFlagPath(), { force: true });
 };
 export const readWarLevel = () => {
-  // 0 = off (平時, left/min). Default off so it never speaks unless turned up.
+  // 0.5 = off (center). Default centered so it never speaks unless moved + enabled.
   try {
     const v = parseFloat(readFileSync(warLevelPath(), 'utf8'));
-    return Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 0;
+    return Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 0.5;
   } catch {
-    return 0;
+    return 0.5;
   }
 };
 export const setWarLevel = (v) => {

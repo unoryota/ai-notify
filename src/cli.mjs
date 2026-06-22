@@ -354,22 +354,19 @@ const cmds = {
       }
     };
 
-    // Bipolar slider: CENTER (0.5) = off, left = デレ, right = ツン. on/off/toggle
-    // just move the level (on → a ツン preset; off → back to center).
+    // Master ON/OFF toggle (config.tsundere.enabled). The slider (level) sets the
+    // TONE — center 0.5 = neutral, left = ツン, right = デレ — but nothing speaks
+    // unless this toggle is ON. Mirrors the menu bar toggle switch.
     if (sub === 'on' || sub === 'off' || sub === 'toggle') {
-      const cur = readTsundereLevel() != null ? readTsundereLevel() : ts.level ?? 0.5;
-      const active = !tsundere.isTsundereOff(cur);
-      const want = sub === 'toggle' ? !active : sub === 'on';
-      const next = want ? (active ? cur : 0.85) : 0.5;
-      setTsundereLevel(next);
+      const want = sub === 'toggle' ? !ts.enabled : sub === 'on';
+      config.tsundere = { ...ts, enabled: want };
       if (want && config.tts === 'voicevox') {
         const sm = voicevox.resolveStyles(config.voicevox?.speaker, url);
-        if (sm) {
-          config.tsundere = { ...ts, styleMap: sm };
-          writeConfig(config);
-        }
+        if (sm) config.tsundere.styleMap = sm;
       }
-      log(want ? `💢 ツンデレ ON（level ${next}・中央0.5でOFF）` : 'ツンデレ OFF（中央 0.5）');
+      writeConfig(config);
+      const lvl = readTsundereLevel() != null ? readTsundereLevel() : config.tsundere.level ?? 0.5;
+      log(want ? `💢 ツンデレ ON（口調はスライダー level ${lvl}・中央=ニュートラル/左ツン/右デレ）` : 'ツンデレ OFF');
       return;
     }
     if (sub === 'level') {
@@ -413,13 +410,14 @@ const cmds = {
     }
     // status
     const lvl = readTsundereLevel() != null ? readTsundereLevel() : ts.level ?? 0.5;
-    const active = !tsundere.isTsundereOff(lvl);
-    log(`ツンデレ: ${active ? `💢 ON (${tsundere.phraseTone(lvl)})` : 'OFF（中央 0.5）'}`);
-    log(`  level:        ${lvl}  (0=デレデレ … 0.5=OFF … 1=極寒ツン)`);
-    log(`  urgencyShift: ${ts.urgencyShift !== false ? 'on' : 'off'}  (緊急度で口調を増減)`);
+    const enabled = ts.enabled === true;
+    const speaking = enabled && !tsundere.isTsundereOff(lvl);
+    log(`ツンデレ: ${enabled ? '💢 ON' : 'OFF'}${enabled ? ` — ${speaking ? tsundere.phraseTone(lvl) : '中央=ニュートラル'}` : ''}`);
+    log(`  toggle:       ${enabled ? 'on' : 'off'}  (ai-notify tsundere on|off)`);
+    log(`  level:        ${lvl}  (0=デレデレ … 0.5=ニュートラル … 1=極寒ツン)`);
     log(`  volumeBoost:  ${ts.volumeBoost !== false ? 'on' : 'off'}  (重大時は音量↑)`);
     log(`  lang:         ${ts.lang || 'ja'}`);
-    if (!active) log('\nON:  ai-notify tsundere on    試聴:  ai-notify tsundere test');
+    if (!enabled) log('\nON:  ai-notify tsundere on    試聴:  ai-notify tsundere test');
   },
 
   // Named presets: snapshot the current volume / prosody / tsundere / war and
@@ -490,22 +488,28 @@ const cmds = {
     process.exit(1);
   },
 
-  // War mode: a military-ops-room read-out skin. Level: min 平時 / mid 戦闘中 /
-  // max 危機的. Combined with the tsundere level for the operator's 好感度.
-  //   war [on|off|toggle|level <0-1>|test|status]
+  // 心理的安全性 (psychological safety): a workplace-environment read-out skin.
+  // BIPOLAR slider — center 0.5 = OFF; left → スパルタ/軍隊, right → ホワイト企業/優しい.
+  // Master ON/OFF toggle (internally the "war" enabled flag + level).
+  //   safety [on|off|toggle|level <0-1>|test|status]   (alias: war)
   war() {
     const sub = positionals[0] || 'status';
     const config = readConfig();
     const ts = config.tsundere || {};
     const url = config.voicevox?.url || voicevox.DEFAULT_URL;
+    const LEVEL_HINT = '(0=スパルタMAX … 0.5=OFF … 1=ホワイトMAX)';
+    const describe = (lvl) => {
+      const { mode, intensity } = war.modeOf(lvl);
+      if (mode === 'off') return '中央=OFF';
+      const pct = Math.round(intensity * 100);
+      return mode === 'spartan' ? `スパルタ ${pct}%` : `ホワイト ${pct}%`;
+    };
 
-    // アドレナリン is a monotonic intensity slider: 0 = off (min), 1 = 危機 (max).
+    // Master ON/OFF toggle. The slider (level) sets WHICH environment + how strong;
+    // nothing speaks unless this toggle is ON.
     if (sub === 'on' || sub === 'off' || sub === 'toggle') {
-      const cur = readWarLevel();
-      const active = cur > 0.04;
-      const want = sub === 'toggle' ? !active : sub === 'on';
-      const next = want ? (active ? cur : 0.85) : 0;
-      setWarLevel(next);
+      const want = sub === 'toggle' ? !isWarEnabled() : sub === 'on';
+      setWarEnabled(want);
       if (want && config.tts === 'voicevox') {
         const sm = voicevox.resolveStyles(config.voicevox?.speaker, url);
         if (sm) {
@@ -513,22 +517,23 @@ const cmds = {
           writeConfig(config);
         }
       }
-      log(want ? `⚔️ アドレナリン ON（level ${next}・最小0でOFF）` : 'アドレナリン OFF（最小 0）');
+      const lvl = readWarLevel();
+      log(want ? `🏢 心理的安全性 ON（${describe(lvl)}・スライダーで調整）` : '心理的安全性 OFF');
       return;
     }
-    // The slider value IS the intensity: 0 = off (平時), 1 = 危機.
-    const intensityOf = (slider) => Math.min(1, Math.max(0, slider));
     if (sub === 'level') {
       const arg = positionals[1];
-      if (arg === undefined) return log(`アドレナリン level: ${readWarLevel()}  (0=OFF/平時 〜 1=危機)`);
-      return log(`⚔️ アドレナリン level → ${setWarLevel(arg)}  (0=OFF/平時 〜 1=危機)`);
+      if (arg === undefined) return log(`心理的安全性 level: ${readWarLevel()}  ${LEVEL_HINT}`);
+      const n = setWarLevel(arg);
+      return log(`🏢 心理的安全性 level → ${n}  → ${describe(n)}  ${LEVEL_HINT}`);
     }
     if (sub === 'test') {
       const lang = ts.lang || 'ja';
-      const level = intensityOf(readWarLevel());
-      const aff = readTsundereLevel() != null ? readTsundereLevel() : ts.level ?? 0.5;
+      // Demo both ends regardless of the current slider, so you hear the range.
+      const points = positionals[1]
+        ? [Math.min(1, Math.max(0, parseFloat(positionals[1])))]
+        : [0.0, 1.0]; // far-left スパルタ + far-right ホワイト
       const sm = config.tts === 'voicevox' ? ts.styleMap || voicevox.resolveStyles(config.voicevox?.speaker, url) : null;
-      log(`war test (intensity ${level.toFixed(2)} = ${war.band(level)}, 好感度 ${aff}, lang ${lang}):\n`);
       const rows =
         lang === 'ja'
           ? [
@@ -543,19 +548,22 @@ const cmds = {
               { tier: 'T1', body: 'updated 3 files' },
               { tier: 'T0', body: 'all tests passed' },
             ];
-      for (const s of rows) {
-        const tone = tsundere.axisFor(aff); // operator tone follows the slider
-        const text = war.wrap(s.body, level, aff, lang, 0);
-        const mul = war.volumeMul(level, s.tier);
-        log(`  [${s.tier} ×${mul.toFixed(2)} ${tone}] ${text}`);
-        if (sm) {
-          const speaker = sm[tone] ?? config.voicevox?.speaker;
-          voicevox.speak(text, speaker, url, mul, undefined, war.effectiveProsody(level, tsundere.effectiveProsody(tone, readVoiceProsody())));
-        } else {
-          try {
-            execFileSync('say', config.voice ? ['-v', config.voice, tsundere.decorateForSay(text, tone)] : [tsundere.decorateForSay(text, tone)], { stdio: 'ignore' });
-          } catch {
-            /* non-mac / no say */
+      for (const level of points) {
+        const tone = war.styleFor(level);
+        log(`\n心理的安全性 test (level ${level.toFixed(2)} = ${describe(level)}, lang ${lang}):`);
+        for (const s of rows) {
+          const text = war.wrap(s.body, level, s.tier, lang, 0);
+          const mul = war.volumeMul(level, s.tier);
+          log(`  [${s.tier} ×${mul.toFixed(2)} ${tone}] ${text}`);
+          if (sm) {
+            const speaker = sm[tone] ?? config.voicevox?.speaker;
+            voicevox.speak(text, speaker, url, mul, undefined, war.effectiveProsody(level, tsundere.effectiveProsody(tone, readVoiceProsody())));
+          } else {
+            try {
+              execFileSync('say', config.voice ? ['-v', config.voice, tsundere.decorateForSay(text, tone)] : [tsundere.decorateForSay(text, tone)], { stdio: 'ignore' });
+            } catch {
+              /* non-mac / no say */
+            }
           }
         }
       }
@@ -563,12 +571,12 @@ const cmds = {
     }
     // status
     const wslider = readWarLevel();
-    const wint = intensityOf(wslider);
-    const wactive = wslider > 0.04;
-    log(`アドレナリン: ${wactive ? `⚔️ ON (${war.band(wint)})` : 'OFF（最小 0）'}`);
-    log(`  level: ${wslider}  → intensity ${wint.toFixed(2)}  (0=OFF/平時 〜 1=危機)`);
-    log(`  好感度 (tsundere level): ${readTsundereLevel() != null ? readTsundereLevel() : ts.level ?? 0.5}`);
-    if (!wactive) log('\nON:  ai-notify war on    試聴:  ai-notify war test');
+    const enabled = isWarEnabled();
+    const speaking = enabled && !war.isOff(wslider);
+    log(`心理的安全性: ${enabled ? '🏢 ON' : 'OFF'}${enabled ? ` — ${speaking ? describe(wslider) : '中央=OFF'}` : ''}`);
+    log(`  toggle: ${enabled ? 'on' : 'off'}  (ai-notify safety on|off)`);
+    log(`  level:  ${wslider}  → ${describe(wslider)}  ${LEVEL_HINT}`);
+    if (!enabled) log('\nON:  ai-notify safety on    試聴:  ai-notify safety test');
   },
 
   // Assign a voice to a specific pane (by tty), from the menu bar.
@@ -626,7 +634,7 @@ const cmds = {
     log(`pane ${tty}: tsundere level ${v}`);
   },
 
-  // Per-pane アドレナリン slider (0.5=off), or `clear` to follow the global.
+  // Per-pane 心理的安全性 slider (0.5=off, bipolar), or `clear` to follow global.
   //   war-pane <tty> <0-1|clear>
   'war-pane'() {
     const [tty, arg] = positionals;
@@ -636,11 +644,11 @@ const cmds = {
     }
     if (arg === 'clear') {
       updatePaneSetting(tty, { war: null });
-      return log(`pane ${tty}: アドレナリン reset to global`);
+      return log(`pane ${tty}: 心理的安全性 reset to global`);
     }
     const v = Math.min(1, Math.max(0, Number(arg)));
     updatePaneSetting(tty, { war: v });
-    log(`pane ${tty}: アドレナリン ${v}`);
+    log(`pane ${tty}: 心理的安全性 ${v}`);
   },
 
   // Per-pane VOICEVOX prosody override, or `clear` to follow the global.
@@ -1151,8 +1159,8 @@ function demoMenuJson() {
     volume: 1.05,
     voices,
     panes,
-    tsundere: { enabled: false, level: 0.85 },
-    war: { enabled: false, level: 0.4 },
+    tsundere: { enabled: true, level: 0.85 },
+    war: { enabled: true, level: 0.78 },
     tts: 'voicevox',
     prosody,
     prosodyRange: VOICE_PROSODY_RANGE,
@@ -1170,8 +1178,8 @@ Usage:
   ai-notify volume [0.0-2.0]                          get/set output volume
   ai-notify voice [number|name|preview|default]      pick the spoken voice
   ai-notify voicevox [setup|on <id>|off|speakers|test]  speak in VOICEVOX character voices
-  ai-notify tsundere [on|off|level <0-1>|test|status]   tsundere persona (ツン⇄デレ by urgency)
-  ai-notify war [on|off|level <0-1>|test|status]        war mode (平時⇄戦闘⇄危機; tsundere level = 好感度)
+  ai-notify tsundere [on|off|level <0-1>|test|status]   tsundere persona (toggle + slider: 左ツン/中央OFF/右デレ)
+  ai-notify safety [on|off|level <0-1>|test|status]     心理的安全性 (toggle + slider: 左スパルタ軍隊/中央OFF/右ホワイト企業)
   ai-notify preset [list|save <name>|load <name>|delete <name>]   save/restore volume+tsundere+war+prosody
   ai-notify voice-prosody [speed|pitch|intonation <v>|reset]  VOICEVOX read-out tuning
   ai-notify menubar [install|uninstall|status]       native menu bar bell (macOS)
@@ -1191,6 +1199,7 @@ Make it one tap: bind a hotkey / menubar button to \`ai-notify toggle\`
 
 const handler =
   cmds[cmd] ||
+  (cmd === 'safety' ? cmds.war : null) || // 心理的安全性 — friendlier alias for the internal "war"
   (cmd === '-v' || cmd === '--version' ? cmds.version : null) ||
   (cmd === undefined || cmd === '-h' || cmd === '--help' ? cmds.help : null);
 

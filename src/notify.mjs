@@ -231,18 +231,16 @@ export const emit = ({ provider = 'default', event = 'done', label = '', message
           ? config.volume
           : 1;
 
-  // Read-out "skin". Both personas are slider-only now (no enable toggle): each
-  // slider's CENTER (0.5) is OFF, and the further from center the stronger.
-  //   ツンデレ : 0 = デレ … 0.5 = off … 1 = ツン
-  //   アドレナリン: 0.5 = off (平時); distance from center = intensity (→ 危機)
-  // When アドレナリン is active it skins the read-out (ops room), flavored by the
-  // tsundere level as the operator's 好感度; otherwise ツンデレ skins it.
+  // Read-out "skin". Two bipolar axes, each a master ON/OFF toggle + a slider
+  // whose CENTER (0.5) is OFF; the further from center, the stronger:
+  //   ツンデレ      : 左 ツン(極寒) … 中央 off … 右 デレ(デレデレ)
+  //   心理的安全性 : 左 スパルタ/軍隊 … 中央 off … 右 ホワイト企業/優しい
+  // 心理的安全性 takes precedence when on; otherwise ツンデレ skins it.
   let outText = speakText;
   let outVol = vol;
   let outSpeaker = speaker;
   let speakTone = 'normal';
   let warActive = false;
-  let warIntensity = 0;
   const ts = config.tsundere || {};
   const tier = tsundere.classifyUrgency(event, message, fullBody);
 
@@ -255,27 +253,28 @@ export const emit = ({ provider = 'default', event = 'done', label = '', message
     if (f != null) return f;
     return typeof ts.level === 'number' ? ts.level : 0.5; // 0.5 = off (center)
   })();
-  // ツンデレ is a BIPOLAR slider: CENTER (0.5) = OFF; slide LEFT for デレ (far-left
-  //   = あまあま デレデレ), RIGHT for ツン (far-right = 極寒 デレ0). アドレナリン stays
-  //   monotonic: 0 off (平時) → 危機 at the far right. The SLIDER fixes the persona;
-  //   urgency only sets VOLUME and WHICH line is picked, never the tone.
+  // Two independent BIPOLAR read-out skins, each with a CENTER (0.5) = OFF and a
+  // master ON/OFF toggle (config.tsundere.enabled / isWarEnabled):
+  //   ツンデレ      : 左 ツン(極寒) ⇔ 中央OFF ⇔ 右 デレ(デレデレ)
+  //   心理的安全性 : 左 スパルタ/軍隊 ⇔ 中央OFF ⇔ 右 ホワイト企業/優しい
+  // 心理的安全性 takes precedence as the read-out skin when it's on; otherwise
+  // ツンデレ skins it. Urgency only sets VOLUME + WHICH line, never the tone.
   const warSlider = typeof pane.war === 'number' ? pane.war : readWarLevel();
-  const tsundereActive = !tsundere.isTsundereOff(tsLevel);
-  // VOICEVOX speaking style follows the slider side: ツンツン (right) / あまあま (left) / ノーマル.
+  const psafetyOn = isWarEnabled() && !war.isOff(warSlider);
+  const tsundereOn = ts.enabled === true && !tsundere.isTsundereOff(tsLevel);
   const tsStyle = tsundere.axisFor(tsLevel);
 
-  if (warSlider > 0.04) {
+  if (psafetyOn) {
     warActive = true;
-    warIntensity = Math.min(1, warSlider);
-    speakTone = tsStyle;
-    outVol = Math.min(2, Math.max(0, vol * war.volumeMul(warIntensity, tier)));
-    outText = war.wrap(spokenBody, warIntensity, tsLevel, ts.lang || 'ja', nextCounter('war'));
+    speakTone = war.styleFor(warSlider); // spartan→ツンツン / white→あまあま
+    outVol = Math.min(2, Math.max(0, vol * war.volumeMul(warSlider, tier)));
+    outText = war.wrap(spokenBody, warSlider, tier, ts.lang || 'ja', nextCounter('war'));
     if (spokenName) outText = joinName(spokenName, outText);
     if (tts === 'voicevox') {
       const sm = ts.styleMap || voicevox.resolveStyles(outSpeaker, config.voicevox?.url);
       if (sm && sm[speakTone] != null) outSpeaker = sm[speakTone];
     }
-  } else if (tsundereActive) {
+  } else if (tsundereOn) {
     speakTone = tsStyle;
     outVol = Math.min(2, Math.max(0, vol * tsundere.volumeMul(tier, ts.volumeBoost !== false)));
     outText = tsundere.wrap(spokenBody, tsLevel, tier, ts.lang || 'ja', nextCounter('tsundere'));
@@ -294,7 +293,7 @@ export const emit = ({ provider = 'default', event = 'done', label = '', message
         // Base prosody: global, with this pane's per-pane overrides on top.
         const baseProsody = { ...readVoiceProsody(), ...(pane.prosody || {}) };
         let prosody = tsundere.effectiveProsody(speakTone, baseProsody);
-        if (warActive) prosody = war.effectiveProsody(warIntensity, prosody); // band scale on top
+        if (warActive) prosody = war.effectiveProsody(warSlider, prosody); // 心理的安全性 scale on top
         spoken = voicevox.speak(outText, outSpeaker, config.voicevox?.url, outVol, undefined, prosody);
       }
       if (!spoken) speak(outText, voice, outVol, speakTone); // OS `say` (also the VOICEVOX fallback)

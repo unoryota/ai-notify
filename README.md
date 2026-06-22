@@ -57,8 +57,8 @@ ai-notify toggle | on | off | status               # the mute switch
 ai-notify volume [0.0-2.0]                          # get/set output volume
 ai-notify voice [number|name|preview|default]      # pick the spoken voice
 ai-notify voicevox [on <id>|off|speakers|test]     # speak in VOICEVOX voices
-ai-notify tsundere [level <0-1>|test|status]       # tsundere persona (slider; center 0.5 = off)
-ai-notify war [level <0-1>|test|status]            # アドレナリン / war mode (slider; 0 = off … 1 = 危機)
+ai-notify tsundere [on|off|level <0-1>|test|status]   # tsundere persona (toggle + bipolar slider; center = off)
+ai-notify safety   [on|off|level <0-1>|test|status]   # 心理的安全性 (toggle + bipolar slider; 0=スパルタ … 0.5=off … 1=ホワイト)
 ai-notify notify [<kind> on|off]                   # which events alert (input|permission|done|…)
 ai-notify popup [on|off|image|delay|ignore|portraits]  # "waiting" character popup (macOS)
 ai-notify preset [list|save|load|delete <name>]    # save / restore your settings
@@ -124,13 +124,13 @@ ai-notify menubar install   # native menu bar app, starts at login
 
 A monochrome waveform icon shows status by color (Adobe-style): plain when idle, a **yellow** dot when an agent is waiting for you, **red + slash** when muted. Muting is **fully silent** — no sound and no desktop banner (a banner would make macOS play its own notification ping) — yet a waiting pane still shows via the yellow icon + a highlighted window, so you never miss it on the way back to your desk.
 
-- **Left-click** → menu: blue sliders for **volume**, the VOICEVOX **prosody** (速さ/高さ/抑揚), **ツンデレ** (center = off) and **アドレナリン** (left/min = off → 危機), the **voice list** (system + VOICEVOX), and a **per-pane submenu** for every terminal where you override **all** of these individually (spoken name, voice, volume, ツンデレ, アドレナリン, prosody).
+- **Left-click** → menu: a **volume** slider, the VOICEVOX **prosody** sliders (速さ/高さ/抑揚), an **ON/OFF toggle switch + bipolar slider** for **ツンデレ** (center = off) and for **心理的安全性** (center = off), the **voice list** (system + VOICEVOX), and a **per-pane submenu** for every terminal where you override **all** of these individually (spoken name, voice, volume, ツンデレ, 心理的安全性, prosody).
 - **Right-click** → instant mute toggle.
 - **⚙ 設定…** → a settings window with **aligned sliders + editable numeric fields** and **saveable presets** (`ai-notify preset save <name>` / `load` / `delete`), so you don't re-tune every time.
 
-<img alt="ai-notify menu — blue sliders for volume + prosody + ツンデレ + アドレナリン, the voice list, and a per-pane row for each terminal" src="https://raw.githubusercontent.com/unoryota/ai-notify/main/assets/menubar.png" width="280">
+<img alt="ai-notify menu — volume + prosody sliders, ON/OFF toggle switches and sliders for ツンデレ and 心理的安全性, the voice list, and a per-pane row for each terminal" src="https://raw.githubusercontent.com/unoryota/ai-notify/main/assets/menubar.png" width="280">
 
-*The menu: blue sliders (volume, 速さ/高さ/抑揚, ツンデレ, アドレナリン), the voice list, and a per-pane row for each terminal — every pane named and voiced (🗣 name — 🔊 voice), each opening to its own overrides.*
+*The menu: a volume slider, the 速さ/高さ/抑揚 sliders, an ON/OFF toggle switch + bipolar slider for ツンデレ and for 心理的安全性, the voice list, and a per-pane row for each terminal — every pane named and voiced (🗣 name — 🔊 voice), each opening to its own overrides.*
 
 The **⚙ settings window** — every slider on one grid, an editable number beside each, and a preset bar to save/restore your setup:
 
@@ -198,28 +198,32 @@ Key-less and no cost (one HTTP request; falls back to a localized template offli
 
 ## 💢 Tsundere mode (optional, fun)
 
-Give the spoken read-out a tsundere persona. The slider is **bipolar with OFF in the center (0.5)**: slide **left for ツン** (harsh — the far-left end is a genuinely **cold** デレ0, "…and? so what?"), **right for デレ** (warm — the far-right end gushes **デレデレ**). Five graded steps: 極寒 ← ツン ← (off) → デレ → デレデレ.
+Give the spoken read-out a tsundere persona. A **master ON/OFF toggle switch** enables it; the **bipolar slider** then sets the tone — center (0.5) = off, slide **left for ツン** (harsh — the far-left end is a genuinely **cold** デレ0, "…and? so what?"), **right for デレ** (warm — the far-right end gushes **デレデレ**). Five graded steps: 極寒 ← ツン ← (off) → デレ → デレデレ.
 
 ```sh
+ai-notify tsundere on            # flip the master switch on (off / toggle too)
 ai-notify tsundere level 0.7     # CLI scale 0 = デレ … 0.5 = off … 1 = ツン (the menu slider is reversed: left ツン / right デレ)
 ai-notify tsundere test          # hear it across event types
 ```
 
 The tone always matches where you set the slider — set it to ツン and you get ツン even on a success (a *reluctant* "…not bad, I guess", not a gushing デレ one). The event's urgency only changes **which line** is picked and the **volume** (a failure is louder), never the ツン⇄デレ tone. **Deterministic, offline** — phrase banks, no API. With **VOICEVOX** the tone also picks the character's own **ツンツン / あまあま** style. `lang`: `ja` / `en`.
 
-## ⚔️ War mode (optional, fun)
+## 🏢 心理的安全性 / Psychological safety (optional, fun)
 
-A separate read-out skin: a **military ops room**. The level sets the situation, and — combined with the tsundere level (the operator's 好感度) — picks the line:
+A separate read-out skin: the **workplace's management style**, as a **bipolar slider with OFF in the center**. A **master ON/OFF toggle switch** enables it; the slider then sets which side and how strong:
 
 ```sh
-ai-notify war level 0.85     # 0 = off (平時, min) … rises to 危機 at 1 (a plain intensity slider)
-ai-notify war on/off         # convenience: jump to active (0.85) / off (min, 0)
-ai-notify war test
+ai-notify safety on             # flip the master switch on (off / toggle too)
+ai-notify safety level 0.1      # 0 = スパルタMAX … 0.5 = off … 1 = ホワイトMAX
+ai-notify safety test           # hear both extremes
 ```
 
-- **平時** — calm radio chatter. **戦闘中** — general quarters, urgent. **危機** — short, sharp shouts (louder + steeper intonation; the pace is tuned to stay intelligible, not a runaway 早口).
-- The **tsundere level flavors every band** (a warm デレ operator vs a harsh ツン one), so war × tsundere gives 9 distinct moods.
-- Both are **slider-only** (no on/off checkbox). **ツンデレ**: center = off, **left ツン / right デレ** (far-left = 極寒, far-right = デレデレ). **アドレナリン**: a plain intensity slider — **left/min = 平時 (off)**, rising to 戦争/危機 at max. Blue sliders in the menu bar (below 速さ/高さ/抑揚) and in the ⚙ settings window. Every per-pane submenu can override **all** of these (name, voice, volume, ツンデレ, アドレナリン, 速さ/高さ/抑揚) individually.
+- **Left → スパルタ / wartime military / 鬼軍曹** — superhard, barking orders, louder ("たるんでるぞ、今すぐ立て直せ！！").
+- **Center → off** — plain read-out.
+- **Right → ホワイト企業 / high psychological safety** — kind, supportive, gentle, softer ("全然大丈夫ですよ、まずは深呼吸して。失敗は学びです").
+- Closer to either end = stronger. **Deterministic, offline** — phrase banks, no API. With **VOICEVOX**, spartan picks the character's ツンツン style and white picks あまあま. (`safety` is the friendly name; the old `war` command still works as an alias.)
+
+Both **ツンデレ** and **心理的安全性** work the same way: a **toggle switch** turns the skin on, and a **center-OFF bipolar slider** sets the tone/side. They live as toggle + slider in the menu bar (below 速さ/高さ/抑揚) and in the ⚙ settings window, and every per-pane submenu can override **all** of these (name, voice, volume, ツンデレ, 心理的安全性, 速さ/高さ/抑揚) individually. When 心理的安全性 is on it takes precedence as the read-out skin; otherwise ツンデレ does.
 
 ## ⏳ Which window, and what it's asking
 

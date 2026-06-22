@@ -371,7 +371,7 @@ final class SettingsWindowController: NSObject {
             // Reversed: field/knob left(0)=ツン … right(1)=デレ, while the file keeps 0=デレ…1=ツン.
             SettingsRow(title: "ツンデレ", asCheckbox: false, on: false, lo: 0, hi: 1, value: 1 - ((tsun?["level"] as? Double) ?? 0.5), fill: blue,
                         onChange: { State.cli(["tsundere", "level", String(format: "%.2f", 1 - $0)]) }),
-            SettingsRow(title: "アドレナリン", asCheckbox: false, on: false, lo: 0, hi: 1, value: (warj?["level"] as? Double) ?? 0.5, fill: blue,
+            SettingsRow(title: "心理的安全性", asCheckbox: false, on: false, lo: 0, hi: 1, value: (warj?["level"] as? Double) ?? 0.5, fill: blue,
                         onChange: { State.cli(["war", "level", String(format: "%.2f", $0)]) }),
             SettingsRow(title: "速さ", asCheckbox: false, on: false, lo: slo, hi: shi, value: (pr["speed"] as? Double) ?? 1, fill: blue,
                         onChange: { State.cli(["voice-prosody", "speed", String(format: "%.3f", $0)]) }),
@@ -381,7 +381,7 @@ final class SettingsWindowController: NSObject {
                         onChange: { State.cli(["voice-prosody", "intonation", String(format: "%.3f", $0)]) }),
         ]
         var y = 264
-        let header = NSTextField(labelWithString: "ツンデレ=中央OFF（左ツン⇔右デレ・両端で最強）　アドレナリン=左OFF→右で戦争")
+        let header = NSTextField(labelWithString: "中央=OFF。ツンデレ=左ツン⇔右デレ　心理的安全性=左スパルタ軍隊⇔右ホワイト企業")
         header.frame = NSRect(x: 16, y: 286, width: 440, height: 16)
         header.font = .systemFont(ofSize: 11); header.textColor = .secondaryLabelColor
         content.addSubview(header)
@@ -595,7 +595,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // デレ (far-right = デレデレ). The file keeps the canonical scale (0 = デレ … 1 = ツン),
     // so the knob sits at 1 - value and we write back 1 - position.
     @objc private func tsundereLevelChanged(_ s: NSSlider) { State.setTsundereLevel(1 - s.doubleValue) }
-    @objc private func tsundereToggled(_ b: NSButton) { State.cli(["tsundere", "toggle"]) }
+    @objc private func tsundereToggled(_ sender: Any) { State.cli(["tsundere", "toggle"]) }
     @objc private func paneTsundereChanged(_ s: NSSlider) {
         if let tty = s.identifier?.rawValue { State.cli(["tsundere-pane", tty, String(format: "%.2f", 1 - s.doubleValue)]) }
     }
@@ -721,34 +721,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return item
     }
 
-    // ツンデレモード on/off as a checkbox living inside a view row, so a click
-    // toggles in place instead of dismissing the menu (a normal menu item closes
-    // on click). The level slider below stays mounted regardless of this state, so
-    // the menu height never jumps.
-    private func tsundereToggleRow(on: Bool) -> NSMenuItem {
-        let row = NSView(frame: NSRect(x: 0, y: 0, width: 220, height: 24))
-        let btn = NSButton(checkboxWithTitle: "ツンデレ", target: self, action: #selector(tsundereToggled(_:)))
-        btn.frame = NSRect(x: 12, y: 2, width: 196, height: 20)
-        btn.state = on ? .on : .off
-        row.addSubview(btn)
-        let item = NSMenuItem(); item.view = row
-        return item
-    }
-
-    // War mode on/off checkbox + 平時⇄危機 slider (level 0–1). Separate axis from
-    // tsundere; the tsundere level flavors it.
-    private func warToggleRow(on: Bool) -> NSMenuItem {
-        let row = NSView(frame: NSRect(x: 0, y: 0, width: 220, height: 24))
-        let btn = NSButton(checkboxWithTitle: "アドレナリン", target: self, action: #selector(warToggled(_:)))
-        btn.frame = NSRect(x: 12, y: 2, width: 196, height: 20)
-        btn.state = on ? .on : .off
-        row.addSubview(btn)
+    // A master ON/OFF toggle SWITCH (NSSwitch) for a read-out skin, in a view row
+    // so a tap flips it in place without closing the menu. The skin's slider sits
+    // right below it (tone/intensity); this switch is the master enable.
+    private func toggleSwitchRow(_ label: String, on: Bool, action: Selector) -> NSMenuItem {
+        let row = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 28))
+        let cap = NSTextField(labelWithString: label)
+        cap.frame = NSRect(x: 12, y: 6, width: 160, height: 16)
+        cap.font = .systemFont(ofSize: 12)
+        let sw = NSSwitch(frame: NSRect(x: 182, y: 3, width: 42, height: 22))
+        sw.state = on ? .on : .off
+        sw.target = self
+        sw.action = action
+        row.addSubview(cap); row.addSubview(sw)
         let item = NSMenuItem(); item.view = row
         return item
     }
 
     // A labeled blue level slider (0–1), laid out like the 速さ/高さ/抑揚 rows so
-    // ツンデレ / アドレナリン sit with them, aligned and in the same blue.
+    // ツンデレ / 心理的安全性 sit with them, aligned and in the same blue.
     private func levelRow(label: String, value: Double, action: Selector) -> NSMenuItem {
         let row = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
         let cap = NSTextField(labelWithString: label)
@@ -764,7 +755,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return item
     }
 
-    @objc private func warToggled(_ b: NSButton) { State.cli(["war", "toggle"]) }
+    @objc private func warToggled(_ sender: Any) { State.cli(["war", "toggle"]) }
     @objc private func warLevelChanged(_ s: NSSlider) { State.cli(["war", "level", String(format: "%.2f", s.doubleValue)]) }
     // Reversed like the other tsundere sliders: left = ツン, right = デレ → write 1 - pos.
     @objc private func tsundereLevelDirect(_ s: NSSlider) { State.cli(["tsundere", "level", String(format: "%.2f", 1 - s.doubleValue)]) }
@@ -793,12 +784,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(sliderRow(value: State.volume, action: #selector(volumeChanged(_:)), identifier: nil))
         menu.addItem(.separator())
 
-        // ツンデレ / アドレナリン are slider-only (no checkbox): center = off. Their
-        // sliders sit below with 速さ/高さ/抑揚.
+        // ツンデレ / 心理的安全性: each is a master ON/OFF switch + a bipolar slider
+        // (center = off). The switches + sliders sit below with 速さ/高さ/抑揚.
         let tsun = json?["tsundere"] as? [String: Any]
         let tsunLevel = (tsun?["level"] as? Double) ?? 0.5
+        let tsunOn = (tsun?["enabled"] as? Bool) ?? false
         let warJson = json?["war"] as? [String: Any]
         let warLevel = (warJson?["level"] as? Double) ?? 0.5
+        let warOn = (warJson?["enabled"] as? Bool) ?? false
 
         // VOICEVOX base prosody (speed / pitch / intonation) — only when VOICEVOX
         // is the active TTS, since these are VOICEVOX audio_query scales.
@@ -822,10 +815,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 menu.addItem(prosodyRow(label: label, value: v, lo: lo, hi: hi, key: key))
             }
         }
-        // ツンデレ (好感度) and アドレナリン (強度) levels, below 速さ/高さ/抑揚, in blue.
+        // ツンデレ + 心理的安全性: master switch then its bipolar slider, below 速さ/高さ/抑揚.
         // ツンデレ slider is reversed (left=ツン, right=デレ) so the knob sits at 1 - level.
-        menu.addItem(levelRow(label: "ツンデレ", value: 1 - tsunLevel, action: #selector(tsundereLevelDirect(_:))))
-        menu.addItem(levelRow(label: "アドレナリン", value: warLevel, action: #selector(warLevelChanged(_:))))
+        // 心理的安全性 slider is direct (left=スパルタ/0, right=ホワイト/1, center=off).
+        menu.addItem(toggleSwitchRow("ツンデレ", on: tsunOn, action: #selector(tsundereToggled(_:))))
+        menu.addItem(levelRow(label: "　└ ツン/デレ", value: 1 - tsunLevel, action: #selector(tsundereLevelDirect(_:))))
+        menu.addItem(toggleSwitchRow("心理的安全性", on: warOn, action: #selector(warToggled(_:))))
+        menu.addItem(levelRow(label: "　└ ｽﾊﾟﾙﾀ/ﾎﾜｲﾄ", value: warLevel, action: #selector(warLevelChanged(_:))))
         menu.addItem(.separator())
 
         if voices.isEmpty {
@@ -886,8 +882,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 tsDef.state = (p["tsundereSet"] as? Bool ?? false) ? .off : .on
                 sub.addItem(tsDef)
                 sub.addItem(.separator())
-                // Per-pane アドレナリン (center = off).
-                sub.addItem(disabledHeader("アドレナリン"))
+                // Per-pane 心理的安全性 (center = off; left スパルタ / right ホワイト).
+                sub.addItem(disabledHeader("心理的安全性"))
                 sub.addItem(paneLevelRow(value: (p["war"] as? Double) ?? 0.5, lo: 0, hi: 1, action: #selector(paneWarChanged(_:)), id: tty))
                 let warDef = NSMenuItem(title: "強さを全体に従う", action: #selector(runItem(_:)), keyEquivalent: "")
                 warDef.target = self; warDef.representedObject = ["war-pane", tty, "clear"]
