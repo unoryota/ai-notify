@@ -1,0 +1,11 @@
+<svg width="160" height="160" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ai-notify">
+  <!-- terminal prompt (>) — "from the terminal" -->
+  <path d="M6.5 8.5 L13 16 L6.5 23.5" fill="none" stroke="#007AFF" stroke-width="3.1"
+        stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- voice waveform bars — "it speaks up" -->
+  <g fill="#007AFF">
+    <rect x="16.4" y="12.5" width="3" height="7" rx="1.5"/>
+    <rect x="21.4" y="8.5"  width="3" height="15" rx="1.5"/>
+    <rect x="26.4" y="13.5" width="3" height="5" rx="1.5"/>
+  </g>
+</svg>

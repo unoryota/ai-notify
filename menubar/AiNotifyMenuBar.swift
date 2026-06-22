@@ -537,35 +537,57 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    // Black/white waveform silhouette (template, auto-adapting) when idle; a
-    // composite with a colored status dot when waiting (yellow) or muted (red +
-    // slash) — Adobe-style status-by-color.
+    // The ai-notify mark: a terminal prompt "›" + a 3-bar voice waveform ("the
+    // terminal speaks up"). Drawn in the 32×32 viewBox of assets/logo.svg so the
+    // menu bar icon and the README logo are the SAME shape. Stroke + fill use the
+    // current color (black for a template image; the system tints it).
+    private func drawMark(in rect: NSRect) {
+        let s = min(rect.width / 32.0, rect.height / 32.0)
+        let ox = rect.minX + (rect.width - 32 * s) / 2
+        let oy = rect.minY + (rect.height - 32 * s) / 2
+        // SVG y is top-down; AppKit is bottom-up — flip with (32 - y).
+        func P(_ x: CGFloat, _ y: CGFloat) -> NSPoint { NSPoint(x: ox + x * s, y: oy + (32 - y) * s) }
+        let chev = NSBezierPath()
+        chev.move(to: P(6.5, 8.5)); chev.line(to: P(13, 16)); chev.line(to: P(6.5, 23.5))
+        chev.lineWidth = 3.1 * s; chev.lineCapStyle = .round; chev.lineJoinStyle = .round
+        chev.stroke()
+        func bar(_ x: CGFloat, _ y: CGFloat, _ w: CGFloat, _ h: CGFloat) {
+            let r = NSRect(x: ox + x * s, y: oy + (32 - (y + h)) * s, width: w * s, height: h * s)
+            NSBezierPath(roundedRect: r, xRadius: (w / 2) * s, yRadius: (w / 2) * s).fill()
+        }
+        bar(16.4, 12.5, 3, 7); bar(21.4, 8.5, 3, 15); bar(26.4, 13.5, 3, 5)
+    }
+
+    // Idle: a monochrome template (auto-tints to the menu bar colour). Waiting /
+    // muted: composite the mark with a coloured status dot (yellow / red + slash).
     private func statusImage(muted: Bool, waiting: Bool) -> NSImage {
-        let cfg = NSImage.SymbolConfiguration(pointSize: 15, weight: .regular)
-        let sym = (NSImage(systemSymbolName: "waveform", accessibilityDescription: "ai-notify")?
-            .withSymbolConfiguration(cfg)) ?? NSImage()
+        let size = NSSize(width: 20, height: 16)
+        let rect = NSRect(origin: .zero, size: size)
 
         if !muted && !waiting {
-            sym.isTemplate = true // system tints to the menu bar color
-            return sym
+            let img = NSImage(size: size)
+            img.lockFocus()
+            NSColor.black.setStroke(); NSColor.black.setFill()
+            drawMark(in: rect)
+            img.unlockFocus()
+            img.isTemplate = true // system tints to the menu bar color
+            return img
         }
 
         let dark = (statusItem.button?.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua)
         let fg: NSColor = muted ? .tertiaryLabelColor : (dark ? .white : .black)
-        let size = sym.size
         let img = NSImage(size: size)
         img.lockFocus()
-        let rect = NSRect(origin: .zero, size: size)
-        sym.draw(in: rect)
-        fg.set(); rect.fill(using: .sourceAtop) // tint the silhouette
+        fg.setStroke(); fg.setFill()
+        drawMark(in: rect)
         // status dot, top-right
         let d: CGFloat = 6
         (muted ? NSColor.systemRed : NSColor.systemYellow).set()
         NSBezierPath(ovalIn: NSRect(x: size.width - d, y: size.height - d, width: d, height: d)).fill()
         if muted { // red slash
-            let s = NSBezierPath(); s.lineWidth = 1.6
-            s.move(to: NSPoint(x: 1.5, y: 1.5)); s.line(to: NSPoint(x: size.width - 1.5, y: size.height - 1.5))
-            NSColor.systemRed.set(); s.stroke()
+            let sl = NSBezierPath(); sl.lineWidth = 1.6
+            sl.move(to: NSPoint(x: 1.5, y: 1.5)); sl.line(to: NSPoint(x: size.width - 1.5, y: size.height - 1.5))
+            NSColor.systemRed.set(); sl.stroke()
         }
         img.unlockFocus()
         img.isTemplate = false

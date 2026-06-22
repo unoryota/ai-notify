@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="https://raw.githubusercontent.com/unoryota/ai-notify/main/assets/logo.svg" width="88" alt="ai-notify logo">
+</p>
+
 # ai-notify
 
 [English](README.md) · **日本語**
