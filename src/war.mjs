@@ -26,12 +26,16 @@ const BAND_VOL = { peace: 1.0, combat: 1.18, crisis: 1.4 };
 const TIER_VOL = { T3: 1.12, T2: 1.04, T1: 1, T0: 0.98 };
 export const volumeMul = (level, tier) => (BAND_VOL[band(level)] || 1) * (TIER_VOL[tier] || 1);
 
-// A VOICEVOX prosody nudge per band (combat/crisis = faster, sharper). Combined
-// on top of the user's base scales by effectiveProsody below.
+// A VOICEVOX prosody nudge per band (combat/crisis = a touch faster + sharper).
+// Combined on top of the user's base scales AND the tsundere tone's own speed
+// multiplier by effectiveProsody below — so these stay SMALL on purpose. The
+// crisis "shout" comes from VOLUME (BAND_VOL) + intonation + short lines, NOT raw
+// speed: over-driving speed here stacks with the tone and turns the read-out into
+// an unintelligible 早口. Keep the combined crisis speed near ~1.12×.
 const BAND_PROSODY = {
   peace: { speed: 0.98, pitch: 0.0, intonation: 1.0 },
-  combat: { speed: 1.1, pitch: 0.0, intonation: 1.2 },
-  crisis: { speed: 1.22, pitch: 0.02, intonation: 1.35 },
+  combat: { speed: 1.02, pitch: 0.0, intonation: 1.1 },
+  crisis: { speed: 1.06, pitch: 0.02, intonation: 1.18 },
 };
 export const effectiveProsody = (level, base = {}) => {
   const t = BAND_PROSODY[band(level)] || BAND_PROSODY.peace;

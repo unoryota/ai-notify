@@ -14,6 +14,7 @@ import { diagnose as highlightDiagnose, clearHighlight } from './highlight.mjs';
 import * as voicevox from './voicevox.mjs';
 import * as tsundere from './tsundere.mjs';
 import * as war from './war.mjs';
+import { lastAssistantText } from './transcript.mjs';
 import {
   isMuted,
   setMuted,
@@ -85,37 +86,6 @@ const readStdinJson = () => {
   } catch {
     return {};
   }
-};
-
-// Pull the agent's last assistant text from a Claude Code transcript (JSONL),
-// trimmed to a short summary suitable for a notification / read-out.
-const lastAssistantText = (transcriptPath) => {
-  try {
-    const lines = readFileSync(transcriptPath, 'utf8').split('\n');
-    for (let i = lines.length - 1; i >= 0; i--) {
-      const line = lines[i].trim();
-      if (!line) continue;
-      let obj;
-      try {
-        obj = JSON.parse(line);
-      } catch {
-        continue;
-      }
-      if (obj.type !== 'assistant') continue;
-      const content = obj.message?.content;
-      if (!Array.isArray(content)) continue;
-      const text = content
-        .filter((c) => c?.type === 'text' && c.text)
-        .map((c) => c.text)
-        .join(' ')
-        .replace(/\s+/g, ' ')
-        .trim();
-      if (text) return text.length > 140 ? `${text.slice(0, 140)}…` : text;
-    }
-  } catch {
-    /* unreadable transcript — fall back to the template */
-  }
-  return '';
 };
 
 // Terminals (ttys) currently running a wired agent — so all open panes can be
