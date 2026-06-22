@@ -48,7 +48,7 @@ A quick tour — translate an agent's reply, list VOICEVOX character voices, and
 | ----- | ------ | -------------- |
 | Claude Code | ✅ | `Notification` + `Stop` hooks in `~/.claude/settings.json` |
 | Codex CLI | ✅ | `notify` in `~/.codex/config.toml` (`agent-turn-complete`) |
-| Gemini CLI | 🧪 detected, hook WIP | PRs welcome |
+| Gemini CLI | 🧪 experimental | `AfterAgent` + `Notification` hooks in `~/.gemini/settings.json` |
 
 Adding another agent (aider, opencode, amp, …) is a small PR: drop a file in `src/providers/`. See [CONTRIBUTING](CONTRIBUTING.md).
 

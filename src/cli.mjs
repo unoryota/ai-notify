@@ -113,7 +113,7 @@ const cmds = {
     if (!any) log('  No supported agents detected (looked for Claude Code, Codex, Gemini).');
     log(`\nMute toggle:  ai-notify toggle    Status:  ai-notify status`);
     if (!dryRun) {
-      log('Restart already-running Codex sessions to pick up the change.');
+      log('Restart already-running agent sessions to pick up the change.');
       // A quiet, one-time nudge — `init` is a setup command, run once. Shown
       // only on the first successful wiring so it never nags on re-runs.
       if (any && firstRunNudge()) {
@@ -1083,6 +1083,18 @@ const cmds = {
       message = data.message || '';
       ntype = data.notification_type || ''; // idle_prompt | permission_prompt | ...
       isSubagent = !!data.agent_id; // present => fired from inside a sub-agent
+      if (source === 'gemini') {
+        // Gemini CLI: AfterAgent -> done, Notification -> waiting. Its done text
+        // lives in `prompt_response` (not `message`), and it has no sub-agent
+        // stop event. Its Notification.notification_type is its own enum, so map
+        // it onto our input/permission buckets — otherwise classifyKind would
+        // file an unknown type as "info" and silently drop the waiting alert.
+        if (!message) message = data.prompt_response || '';
+        if (event === 'waiting') {
+          const hint = `${data.notification_type || ''} ${data.message || ''}`;
+          ntype = /permiss|approv|confirm/i.test(hint) ? 'permission_prompt' : '';
+        }
+      }
       // The Stop hook has no message, so "done" would only say "finished".
       // Pull the agent's last reply from the transcript so the notification
       // says WHAT was done.

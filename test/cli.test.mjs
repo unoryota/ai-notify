@@ -140,3 +140,37 @@ test('un-muted hook does notify (sound and/or banner)', { skip: process.platform
   const calls = runHookWithStubs({ muted: false });
   assert.notEqual(calls, '', 'un-muted hook should produce a notification');
 });
+
+// Gemini provider: wiring writes AfterAgent->done / Notification->waiting hooks
+// into ~/.gemini/settings.json, preserves unrelated keys, and unwire removes
+// only ours.
+test('gemini wire writes hooks then unwire removes them', () => {
+  const home = mkdtempSync(join(tmpdir(), 'ai-notify-gemini-'));
+  mkdirSync(join(home, '.gemini'), { recursive: true });
+  const settings = join(home, '.gemini', 'settings.json');
+  // a pre-existing unrelated setting must survive wiring
+  writeFileSync(settings, JSON.stringify({ theme: 'dark' }));
+  const env = { ...process.env, HOME: home };
+
+  spawnSync(process.execPath, [CLI, 'init', '--only', 'gemini'], { env, encoding: 'utf8' });
+  let data = JSON.parse(readFileSync(settings, 'utf8'));
+  assert.equal(data.theme, 'dark', 'unrelated keys preserved');
+  const cmds = [...(data.hooks.AfterAgent || []), ...(data.hooks.Notification || [])].flatMap((g) =>
+    (g.hooks || []).map((h) => h.command)
+  );
+  assert.ok(
+    data.hooks.AfterAgent.some((g) => g.hooks.some((h) => /--source gemini --event done/.test(h.command))),
+    'AfterAgent wired to done'
+  );
+  assert.ok(
+    data.hooks.Notification.some((g) => g.hooks.some((h) => /--source gemini --event waiting/.test(h.command))),
+    'Notification wired to waiting'
+  );
+  assert.ok(cmds.every((c) => c.includes('ai-notify')), 'commands point at our cli');
+
+  spawnSync(process.execPath, [CLI, 'uninstall', '--only', 'gemini'], { env, encoding: 'utf8' });
+  data = JSON.parse(readFileSync(settings, 'utf8'));
+  assert.equal(data.theme, 'dark', 'unrelated keys still preserved after unwire');
+  const left = [...(data.hooks.AfterAgent || []), ...(data.hooks.Notification || [])];
+  assert.equal(left.length, 0, 'our hooks fully removed');
+});

@@ -160,6 +160,9 @@ test('e2e: hook (done with transcript) + waiting, fully silent paths', () => {
   ok(['hook', '--event', 'waiting', '--source', 'claude'], JSON.stringify({ notification_type: 'idle_prompt', cwd: sandbox }));
   // codex shape
   ok(['hook', '--source', 'codex', JSON.stringify({ type: 'agent-turn-complete', 'last-assistant-message': 'ok', cwd: sandbox })]);
+  // gemini shape: AfterAgent -> done (message in prompt_response), Notification -> waiting
+  ok(['hook', '--event', 'done', '--source', 'gemini'], JSON.stringify({ prompt_response: 'all set', cwd: sandbox }));
+  ok(['hook', '--event', 'waiting', '--source', 'gemini'], JSON.stringify({ notification_type: 'tool_confirmation', message: 'Allow write_file?', cwd: sandbox }));
 });
 
 test('e2e: translate off + menubar status (read-only)', () => {
