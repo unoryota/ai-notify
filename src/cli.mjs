@@ -1182,7 +1182,7 @@ function printHelp() {
   log(`ai-notify ${VERSION} — notifications for terminal AI coding agents
 
 Usage:
-  ai-notify init [--dry-run] [--only claude,codex]   wire detected agents
+  ai-notify init [--dry-run] [--only claude,codex,gemini]   wire detected agents
   ai-notify uninstall [--only ...]                   remove wiring
   ai-notify use <name> [voice] [vol] [--tab <t>]     name THIS pane + voice + tab, at once (voice: Kyoko | 3 | ずんだもん | vv3)
   ai-notify toggle | on | off | status               control the mute switch

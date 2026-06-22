@@ -31,10 +31,14 @@ export const unwire = ({ dryRun }) => ({ changed, detail, file });
 - Make `wire`/`unwire` **idempotent** and **non-destructive**: never overwrite a
   user's pre-existing config; detect your own entries with the shared `MARKER`.
 - Register the module in [`src/providers/index.mjs`](src/providers/index.mjs).
+- If your agent's hook payload has its own shape, add a branch in the `hook()`
+  handler in [`src/cli.mjs`](src/cli.mjs) to map it onto `cwd` / `message` /
+  `event` / `notification_type` (see the `codex` and `gemini` branches).
 - Add a test in [`test/`](test/).
 
-See [`claude.mjs`](src/providers/claude.mjs) (JSON settings) and
-[`codex.mjs`](src/providers/codex.mjs) (TOML) for the two common shapes.
+See [`claude.mjs`](src/providers/claude.mjs) / [`gemini.mjs`](src/providers/gemini.mjs)
+(JSON settings, stdin payload) and [`codex.mjs`](src/providers/codex.mjs) (TOML
+config, single JSON arg) for the two common shapes.
 
 ## Adding a notifier backend
 

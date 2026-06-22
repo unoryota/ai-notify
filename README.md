@@ -55,7 +55,7 @@ Adding another agent (aider, opencode, amp, …) is a small PR: drop a file in `
 ## Commands
 
 ```sh
-ai-notify init [--dry-run] [--only claude,codex]   # wire detected agents
+ai-notify init [--dry-run] [--only claude,codex,gemini]   # wire detected agents
 ai-notify use <name> [voice] [vol] [--tab <t>]     # set THIS pane's name + voice + tab title, at once
 ai-notify toggle | on | off | status               # the mute switch
 ai-notify volume [0.0-2.0]                          # get/set output volume
@@ -128,7 +128,7 @@ ai-notify menubar install   # native menu bar app, starts at login
 
 A monochrome waveform icon shows status by color (Adobe-style): plain when idle, a **yellow** dot when an agent is waiting for you, **red + slash** when muted. Muting is **fully silent** — no sound and no desktop banner (a banner would make macOS play its own notification ping) — yet a waiting pane still shows via the yellow icon + a highlighted window, so you never miss it on the way back to your desk.
 
-- **Left-click** → menu: a **volume** slider, the VOICEVOX **prosody** sliders (速さ/高さ/抑揚), an **ON/OFF toggle switch + bipolar slider** for **ツンデレ** (center = off) and for **心理的安全性** (center = off), the **voice list** (system + VOICEVOX), and a **per-pane submenu** for every terminal where you override **all** of these individually (spoken name, voice, volume, ツンデレ, 心理的安全性, prosody).
+- **Left-click** → menu: a **volume** slider, the VOICEVOX **prosody** sliders (速さ/高さ/抑揚), an **ON/OFF toggle switch + bipolar slider** for **ツンデレ** (center = off) and for **心理的安全性** (center = off), the **voice list** (system + VOICEVOX), and a **per-pane submenu** for every terminal where you override **all** of these individually (spoken name, voice, volume, ツンデレ, 心理的安全性, prosody). The pane list only shows terminals with a **live** agent — panes from sessions you've closed or that were lost to a reboot are pruned automatically (at menu-bar startup and whenever you open the menu), so no stale "ghost" panes linger.
 - **Right-click** → instant mute toggle.
 - **⚙ 設定…** → a settings window with **aligned sliders + editable numeric fields** and **saveable presets** (`ai-notify preset save <name>` / `load` / `delete`), so you don't re-tune every time.
 
