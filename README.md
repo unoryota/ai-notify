@@ -202,7 +202,7 @@ Key-less and no cost (one HTTP request; falls back to a localized template offli
 
 ## 💢 Tsundere mode (optional, fun)
 
-Give the spoken read-out a tsundere persona. The **slider sets the tone**: left **デレ** (sweet), right **ツン** (harsh), **center = off**.
+Give the spoken read-out a tsundere persona. The **slider sets the tone**: left **デレ** (sweet), right **ツン** (harsh), **center = off**. Push it to the **far right (≥0.8)** for a genuinely **cold** デレ0 ("…and? so what?"), not the classic tsundere-with-hidden-warmth you get around 0.6–0.7.
 
 ```sh
 ai-notify tsundere level 0.7     # 0 = デレ … 0.5 = off … 1 = ツン; the menu bar has a slider

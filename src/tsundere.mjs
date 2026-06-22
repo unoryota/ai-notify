@@ -53,12 +53,42 @@ export const volumeMul = (tier, volumeBoost = true) => (volumeBoost ? VOLMUL[tie
 // tone and the VOICEVOX style pick.
 export const axisFor = (eff) => (eff >= 0.6 ? 'tsun' : eff <= 0.4 ? 'dere' : 'normal');
 
+// Phrase tone is finer than the VOICEVOX style: at the far ツン end (デレ 0) the
+// lines should be genuinely COLD — no hidden tsundere warmth — so ≥ 0.8 picks the
+// `cold` bank, ≥ 0.6 the (softer, classic) `tsun`, etc. The VOICEVOX style still
+// uses axisFor (cold reads through the ツンツン voice).
+export const phraseTone = (level) =>
+  level >= 0.8 ? 'cold' : level >= 0.6 ? 'tsun' : level <= 0.4 ? 'dere' : 'normal';
+
 // --- Phrase banks ----------------------------------------------------------
 // BANK[lang][tone] = { <tier>: [...], default: [...] }. `{body}` is the task
 // gist (kept, so the read-out is still informative). Tasteful, short, SFW.
 
 const BANK = {
   ja: {
+    // cold: デレ0の極寒。隠れデレ無し。突き放し・無関心・侮蔑寄り（SFW）。最右端用。
+    cold: {
+      T3: [
+        'また{body}。…はぁ。',
+        '{body}。で？直すのはあなたでしょ。',
+        '{body}ね。言い訳は聞いてないから。',
+        '{body}。…これで何度目かしらね。さっさとして。',
+        '{body}。…呆れた。早く。',
+      ],
+      T2: [
+        '{body}。…早く決めて。',
+        '{body}でしょ。わたしに聞かないで、自分で決めなさい。',
+        '{body}。…まだなの。',
+      ],
+      T1: ['{body}。ふーん。', '{body}。…で？', '{body}ね。当然でしょ。', '{body}。報告は要らないから。'],
+      T0: [
+        '{body}。…で、それが何か？',
+        '{body}。当たり前でしょ。いちいち言わないで。',
+        '{body}。ふん、当然の結果ね。',
+        '{body}。…別に。それくらい普通。',
+      ],
+      default: ['{body}。…で？', '{body}。ふーん、勝手にすれば。'],
+    },
     // ツン: 冷たい・とげとげ・素直じゃない。失敗には容赦なく、成功も渋々。
     tsun: {
       T3: [
@@ -139,6 +169,13 @@ const BANK = {
     },
   },
   en: {
+    cold: {
+      T3: ['{body} again. …Figures.', '{body}. So? Fix it yourself.', "{body}. I'm not listening to excuses."],
+      T2: ['{body}. …Just decide already.', "{body}. Don't ask me, decide it yourself."],
+      T1: ['{body}. …And?', '{body}. Obviously.', "{body}. Spare me the report."],
+      T0: ['{body}. …So what?', "{body}. Of course. Don't bother telling me.", '{body}. As expected. Nothing special.'],
+      default: ['{body}. …And?', '{body}. Do whatever.'],
+    },
     tsun: {
       T3: [
         "Hey! {body} again?! ...Don't just sit there — fix it!",
@@ -215,7 +252,7 @@ export const isLangSupported = (lang) => !!BANK[lang];
 export const wrap = (body, eff, tier, lang = 'ja', rot = 0) => {
   const bank = BANK[lang];
   if (!bank || !body) return body;
-  const tone = axisFor(eff);
+  const tone = phraseTone(eff); // finer than axisFor — adds the cold (デレ0) band
   const group = bank[tone] || bank.normal;
   const arr = (group && (group[tier] || group.default)) || ['{body}'];
   const phrase = arr[((rot % arr.length) + arr.length) % arr.length];
