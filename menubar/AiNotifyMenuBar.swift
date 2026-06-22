@@ -155,19 +155,22 @@ final class ClickableCardView: NSView {
     override func mouseDown(with event: NSEvent) { onClick() }
 }
 
-// The 心理的安全性 slider: its track is a left=black → right=white gradient
-// (ブラック企業 ⇔ ホワイト企業). The custom cell only repaints the BAR; the knob and
-// all mouse tracking use the stock NSSliderCell behaviour, so dragging still
-// updates the value. Built via cellClass (never swap .cell after init).
+// A slider whose TRACK is a left→right colour gradient, encoding the meaning of
+// the two ends:
+//   心理的安全性 : black (ブラック企業) → white (ホワイト企業)
+//   ツンデレ      : 冷たい青 (ツン) → あたたかいピンク (デレ)
+// The custom cell only repaints the BAR; the knob and all mouse tracking use the
+// stock NSSliderCell behaviour, so dragging still updates the value. Built via
+// cellClass (never swap .cell after init); the colours are set as properties.
 final class GradientSliderCell: NSSliderCell {
+    var startColor = NSColor(white: 0.12, alpha: 1) // left
+    var endColor = NSColor(white: 0.97, alpha: 1) // right
     override func drawBar(inside rect: NSRect, flipped: Bool) {
         let h: CGFloat = 4
         let bar = NSRect(x: rect.minX, y: rect.midY - h / 2, width: rect.width, height: h)
         let path = NSBezierPath(roundedRect: bar, xRadius: h / 2, yRadius: h / 2)
-        let dim = isEnabled ? 1.0 : 0.4 // greyed when the toggle is OFF
-        let black = NSColor(white: 0.12, alpha: dim)
-        let white = NSColor(white: 0.97, alpha: dim)
-        let grad = NSGradient(starting: black, ending: white)
+        let dim: CGFloat = isEnabled ? 1.0 : 0.4 // greyed when the toggle is OFF
+        let grad = NSGradient(starting: startColor.withAlphaComponent(dim), ending: endColor.withAlphaComponent(dim))
         grad?.draw(in: path, angle: 0) // 0° = left→right
         NSColor(white: 0.5, alpha: 0.35 * dim).setStroke()
         path.lineWidth = 0.5
@@ -181,6 +184,12 @@ final class GradientSlider: NSSlider {
         set {}
     }
 }
+
+// The two end colours for each skin's gradient track (left, right).
+let TSUNDERE_GRADIENT = (NSColor(srgbRed: 0.27, green: 0.53, blue: 0.96, alpha: 1), // ツン: 冷たい青
+                         NSColor(srgbRed: 1.0, green: 0.45, blue: 0.66, alpha: 1))  // デレ: あたたかいピンク
+let PSAFETY_GRADIENT = (NSColor(white: 0.12, alpha: 1),  // ブラック企業: 黒
+                        NSColor(white: 0.97, alpha: 1))  // ホワイト企業: 白
 
 // One floating "応答待ち" card, built once and updated in place.
 final class PopupCard: NSObject {
@@ -286,14 +295,17 @@ final class SettingsRow: NSObject {
     private let onToggle: (() -> Void)?
 
     init(title: String, asCheckbox: Bool, on: Bool, lo: Double, hi: Double, value: Double,
-         fill: NSColor, gradient: Bool = false, onToggle: (() -> Void)? = nil, onChange: @escaping (Double) -> Void) {
+         fill: NSColor, colors: (NSColor, NSColor)? = nil, onToggle: (() -> Void)? = nil, onChange: @escaping (Double) -> Void) {
         self.lo = lo; self.hi = hi; self.onChange = onChange; self.onToggle = onToggle
-        // gradient => the 心理的安全性 row: black(left)→white(right) track. Built with
-        // its cell class from the start so dragging still tracks.
-        slider = gradient
+        // colors => a meaning-coded gradient track (ツン青→デレピンク / ブラック黒→ホワイト白).
+        // Built with its cell class from the start so dragging still tracks.
+        slider = colors != nil
             ? GradientSlider(value: value, minValue: lo, maxValue: hi, target: nil, action: nil)
             : NSSlider(value: value, minValue: lo, maxValue: hi, target: nil, action: nil)
         super.init()
+        if let (lo2, hi2) = colors, let cell = slider.cell as? GradientSliderCell {
+            cell.startColor = lo2; cell.endColor = hi2
+        }
 
         if asCheckbox {
             let cb = NSButton(checkboxWithTitle: title, target: self, action: #selector(toggled))
@@ -400,9 +412,9 @@ final class SettingsWindowController: NSObject {
             SettingsRow(title: "音量", asCheckbox: false, on: false, lo: 0, hi: 2, value: (j["volume"] as? Double) ?? 1, fill: blue,
                         onChange: { State.cli(["volume", String(format: "%.2f", $0)]) }),
             // Reversed: field/knob left(0)=ツン … right(1)=デレ, while the file keeps 0=デレ…1=ツン.
-            SettingsRow(title: "ツンデレ", asCheckbox: false, on: false, lo: 0, hi: 1, value: 1 - ((tsun?["level"] as? Double) ?? 0.5), fill: blue,
+            SettingsRow(title: "ツンデレ", asCheckbox: false, on: false, lo: 0, hi: 1, value: 1 - ((tsun?["level"] as? Double) ?? 0.5), fill: blue, colors: TSUNDERE_GRADIENT,
                         onChange: { State.cli(["tsundere", "level", String(format: "%.2f", 1 - $0)]) }),
-            SettingsRow(title: "心理的安全性", asCheckbox: false, on: false, lo: 0, hi: 1, value: (warj?["level"] as? Double) ?? 0.5, fill: blue, gradient: true,
+            SettingsRow(title: "心理的安全性", asCheckbox: false, on: false, lo: 0, hi: 1, value: (warj?["level"] as? Double) ?? 0.5, fill: blue, colors: PSAFETY_GRADIENT,
                         onChange: { State.cli(["war", "level", String(format: "%.2f", $0)]) }),
             SettingsRow(title: "速さ", asCheckbox: false, on: false, lo: slo, hi: shi, value: (pr["speed"] as? Double) ?? 1, fill: blue,
                         onChange: { State.cli(["voice-prosody", "speed", String(format: "%.3f", $0)]) }),
@@ -779,9 +791,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return item
     }
 
-    // A labeled blue level slider (0–1), laid out like the 速さ/高さ/抑揚 rows so
-    // ツンデレ / 心理的安全性 sit with them, aligned and in the same blue.
-    private func levelRow(label: String, value: Double, enabled: Bool = true, gradient: Bool = false,
+    // A labeled level slider (0–1), laid out like the 速さ/高さ/抑揚 rows so ツンデレ /
+    // 心理的安全性 sit with them. `colors` (left,right) draws a meaning-coded gradient
+    // track (ツン青→デレピンク / ブラック黒→ホワイト白).
+    private func levelRow(label: String, value: Double, enabled: Bool = true, colors: (NSColor, NSColor)? = nil,
                           action: Selector, onBuild: ((NSSlider, NSTextField) -> Void)? = nil) -> NSMenuItem {
         let row = NSView(frame: NSRect(x: 0, y: 0, width: 270, height: 24))
         // Indented sub-label under its toggle. Wide enough for the full text
@@ -791,12 +804,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         cap.font = .systemFont(ofSize: 10)
         cap.textColor = enabled ? .secondaryLabelColor : .tertiaryLabelColor
         cap.lineBreakMode = .byClipping
-        // gradient => the 心理的安全性 slider, whose track runs black (left) → white
-        // (right). Built WITH its custom cell class from the start (swapping .cell
-        // after construction breaks mouse tracking), so dragging still updates.
-        let slider: NSSlider = gradient
+        // Gradient slider built WITH its custom cell class from the start (swapping
+        // .cell after construction breaks mouse tracking), so dragging still updates.
+        let slider: NSSlider = colors != nil
             ? GradientSlider(value: value, minValue: 0, maxValue: 1, target: self, action: action)
             : NSSlider(value: value, minValue: 0, maxValue: 1, target: self, action: action)
+        if let (lo, hi) = colors, let cell = slider.cell as? GradientSliderCell {
+            cell.startColor = lo; cell.endColor = hi
+        }
         slider.frame = NSRect(x: 132, y: 3, width: 126, height: 20)
         slider.isContinuous = false
         slider.isEnabled = enabled // isEnabled=false greys it out so an OFF toggle reads as off
@@ -880,10 +895,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // ツンデレ slider is reversed (left=ツン, right=デレ) so the knob sits at 1 - level.
         // 心理的安全性 slider is direct (left=ブラック/0, right=ホワイト/1, center=off).
         menu.addItem(toggleSwitchRow("ツンデレ", on: tsunOn, action: #selector(tsundereToggled(_:))))
-        menu.addItem(levelRow(label: "ツン⇔デレ", value: 1 - tsunLevel, enabled: tsunOn, action: #selector(tsundereLevelDirect(_:)),
+        menu.addItem(levelRow(label: "ツン⇔デレ", value: 1 - tsunLevel, enabled: tsunOn, colors: TSUNDERE_GRADIENT, action: #selector(tsundereLevelDirect(_:)),
                               onBuild: { [weak self] s, c in self?.tsundereSlider = s; self?.tsundereCap = c }))
         menu.addItem(toggleSwitchRow("心理的安全性", on: warOn, action: #selector(warToggled(_:))))
-        menu.addItem(levelRow(label: "ブラック⇔ホワイト", value: warLevel, enabled: warOn, gradient: true, action: #selector(warLevelChanged(_:)),
+        menu.addItem(levelRow(label: "ブラック⇔ホワイト", value: warLevel, enabled: warOn, colors: PSAFETY_GRADIENT, action: #selector(warLevelChanged(_:)),
                               onBuild: { [weak self] s, c in self?.psafetySlider = s; self?.psafetyCap = c }))
         menu.addItem(.separator())
 
