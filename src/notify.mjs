@@ -204,12 +204,14 @@ export const emit = ({ provider = 'default', event = 'done', label = '', message
   //   3. the auto-derived label — only when speakLabel is on (else slow filler).
   const envName = (process.env.AI_NOTIFY_LABEL || '').trim();
   const spokenName = envName || pane.speakName || (config.speakLabel === true && label ? label : '');
-  // Join the pane name to the read-out as the SUBJECT. Japanese needs the は
-  // topic particle ("ジョンは、…") — a bare comma ("ジョン、…") reads as calling
-  // out TO John, not saying John is the one finishing / waiting. Other languages
-  // just get a comma.
+  // Join the pane name to the read-out as the SUBJECT. Japanese needs the topic
+  // particle ("ジョンWA、…") — a bare comma ("ジョン、…") reads as calling out TO John,
+  // not saying John is the one finishing / waiting. We write the particle as 「わ」
+  // (not 「は」): TTS engines often mis-read the kanji-particle 「は」 as the literal
+  // "ha", whereas 「わ」 is always voiced "wa". This is the spoken text only — the
+  // banner shows the original message. Other languages just get a comma.
   const isJa = (s) => /[぀-ヿ㐀-鿿ｦ-ﾟ]/.test(s); // kana / kanji / half-width kana
-  const joinName = (name, body) => (name ? `${name}${isJa(body) ? 'は、' : ', '}${body}` : body);
+  const joinName = (name, body) => (name ? `${name}${isJa(body) ? 'わ、' : ', '}${body}` : body);
   const speakText = joinName(spokenName, spokenBody);
 
   // Per-pane voice (precedence: $AI_NOTIFY_* env > this pane's pick > global).
@@ -257,8 +259,10 @@ export const emit = ({ provider = 'default', event = 'done', label = '', message
   // master ON/OFF toggle (config.tsundere.enabled / isWarEnabled):
   //   ツンデレ      : 左 ツン(極寒) ⇔ 中央OFF ⇔ 右 デレ(デレデレ)
   //   心理的安全性 : 左 ブラック企業 ⇔ 中央OFF ⇔ 右 ホワイト企業/優しい
-  // 心理的安全性 takes precedence as the read-out skin when it's on; otherwise
-  // ツンデレ skins it. Urgency only sets VOLUME + WHICH line, never the tone.
+  // When 心理的安全性 is on it's the read-out skin — but it COMBINES with ツンデレ:
+  // the psafety SIDE (black/white) is the environment and the tsundere TONE
+  // (ツン/デレ/ノーマル) flavors the line, so ブラック×デレ ≠ ブラック×ツン. When ツンデレ
+  // is off the tone is ノーマル. If 心理的安全性 is off, ツンデレ skins it alone.
   const warSlider = typeof pane.war === 'number' ? pane.war : readWarLevel();
   const psafetyOn = isWarEnabled() && !war.isOff(warSlider);
   const tsundereOn = ts.enabled === true && !tsundere.isTsundereOff(tsLevel);
@@ -266,9 +270,12 @@ export const emit = ({ provider = 'default', event = 'done', label = '', message
 
   if (psafetyOn) {
     warActive = true;
-    speakTone = war.styleFor(warSlider); // black→ツンツン / white→あまあま
+    // The persona's voice/word tone follows ツンデレ when it's on; otherwise the
+    // side's own default (black→ツン, white→デレ).
+    const tone = tsundereOn ? tsStyle : war.styleFor(warSlider);
+    speakTone = tone;
     outVol = Math.min(2, Math.max(0, vol * war.volumeMul(warSlider, tier)));
-    outText = war.wrap(spokenBody, warSlider, tier, ts.lang || 'ja', nextCounter('war'));
+    outText = war.wrap(spokenBody, warSlider, tier, ts.lang || 'ja', nextCounter('war'), tone);
     if (spokenName) outText = joinName(spokenName, outText);
     if (tts === 'voicevox') {
       const sm = ts.styleMap || voicevox.resolveStyles(outSpeaker, config.voicevox?.url);

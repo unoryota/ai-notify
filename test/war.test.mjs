@@ -47,9 +47,30 @@ test('wrap: far-left is black/harsh, far-right is white/gentle', () => {
   const white = wrap('テスト全部パス', 1.0, 'T0', 'ja', 0);
   assert.match(black, /ビルドが失敗/);
   assert.match(white, /テスト全部パス/);
-  assert.match(black, /！/); // barking
+  assert.match(black, /(直して|帰れる|対応|残業)/); // black-company pressure
   assert.match(white, /(素晴らし|誇り|お祝い|大成功)/); // warm praise
   assert.notEqual(black, white);
+});
+
+test('wrap: side × tone COMBINATION — ブラック×デレ ≠ ブラック×ツン', () => {
+  const blackDere = wrap('ビルドが失敗', 0.0, 'T3', 'ja', 0, 'dere');
+  const blackTsun = wrap('ビルドが失敗', 0.0, 'T3', 'ja', 0, 'tsun');
+  const blackNormal = wrap('ビルドが失敗', 0.0, 'T3', 'ja', 0, 'normal');
+  assert.notEqual(blackDere, blackTsun);
+  assert.notEqual(blackDere, blackNormal);
+  // ブラック×デレ: caring-but-pushed (sweet wording despite the black-company push)
+  assert.match(blackDere, /(ごめん|一緒|頑張ろ|無理させ)/);
+  // ブラック×ツン: cold/curt
+  assert.match(blackTsun, /(言い訳|詰め|残業)/);
+});
+
+test('wrap: ホワイト×デレ is the most wholesome combo', () => {
+  const whiteDere = wrap('テスト全部パス', 1.0, 'T0', 'ja', 0, 'dere');
+  assert.match(whiteDere, /(最高|大好き|誇らし|すごい)/);
+});
+
+test('wrap: tone defaults to normal when omitted', () => {
+  assert.equal(wrap('x', 0.0, 'T3', 'ja', 0), wrap('x', 0.0, 'T3', 'ja', 0, 'normal'));
 });
 
 test('wrap: rotation varies the phrase', () => {

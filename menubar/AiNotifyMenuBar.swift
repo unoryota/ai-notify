@@ -168,13 +168,32 @@ final class GradientSliderCell: NSSliderCell {
     override func drawBar(inside rect: NSRect, flipped: Bool) {
         let h: CGFloat = 4
         let bar = NSRect(x: rect.minX, y: rect.midY - h / 2, width: rect.width, height: h)
-        let path = NSBezierPath(roundedRect: bar, xRadius: h / 2, yRadius: h / 2)
-        let dim: CGFloat = isEnabled ? 1.0 : 0.4 // greyed when the toggle is OFF
-        let grad = NSGradient(starting: startColor.withAlphaComponent(dim), ending: endColor.withAlphaComponent(dim))
-        grad?.draw(in: path, angle: 0) // 0° = left→right
-        NSColor(white: 0.5, alpha: 0.35 * dim).setStroke()
-        path.lineWidth = 0.5
-        path.stroke()
+        let radius = h / 2
+        // Fill slider: only the FILLED portion (min → knob) shows the gradient; the
+        // remainder (knob → max) is plain grey — like the stock sliders. So the
+        // end colour (e.g. デレのピンク / ホワイトの白) only appears as the knob nears
+        // that end, and an OFF/greyed slider is uniformly grey.
+        let full = NSBezierPath(roundedRect: bar, xRadius: radius, yRadius: radius)
+        NSColor(white: 0.5, alpha: 0.22).setFill()
+        full.fill()
+
+        let frac = maxValue > minValue ? CGFloat((doubleValue - minValue) / (maxValue - minValue)) : 0
+        let fillW = max(0, min(bar.width, bar.width * frac))
+        if fillW > 0.5 {
+            NSGraphicsContext.saveGraphicsState()
+            full.addClip() // keep the rounded ends
+            NSBezierPath(rect: NSRect(x: bar.minX, y: bar.minY, width: fillW, height: bar.height)).addClip()
+            if isEnabled {
+                NSGradient(starting: startColor, ending: endColor)?.draw(in: bar, angle: 0) // full-bar gradient, clipped to the fill
+            } else {
+                NSColor(white: 0.55, alpha: 0.6).setFill() // OFF → flat grey fill
+                bar.fill()
+            }
+            NSGraphicsContext.restoreGraphicsState()
+        }
+        NSColor(white: 0.5, alpha: 0.3).setStroke()
+        full.lineWidth = 0.5
+        full.stroke()
     }
 }
 

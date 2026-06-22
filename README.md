@@ -223,7 +223,7 @@ ai-notify safety test           # hear both extremes
 - **Right → ホワイト企業 / high psychological safety** — kind, supportive, gentle, softer ("全然大丈夫ですよ、まずは深呼吸して。失敗は学びです").
 - Closer to either end = stronger. **Deterministic, offline** — phrase banks, no API. With **VOICEVOX**, black picks the character's ツンツン style and white picks あまあま. (`safety` is the friendly name; the old `war` command still works as an alias.)
 
-Both **ツンデレ** and **心理的安全性** work the same way: a **toggle switch** turns the skin on, and a **center-OFF bipolar slider** sets the tone/side. They live as toggle + slider in the menu bar (below 速さ/高さ/抑揚) and in the ⚙ settings window, and every per-pane submenu can override **all** of these (name, voice, volume, ツンデレ, 心理的安全性, 速さ/高さ/抑揚) individually. When 心理的安全性 is on it takes precedence as the read-out skin; otherwise ツンデレ does.
+Both **ツンデレ** and **心理的安全性** work the same way: a **toggle switch** turns the skin on, and a **center-OFF bipolar slider** sets the tone/side. They live as toggle + slider in the menu bar (below 速さ/高さ/抑揚) and in the ⚙ settings window, and every per-pane submenu can override **all** of these (name, voice, volume, ツンデレ, 心理的安全性, 速さ/高さ/抑揚) individually. With both on they **combine**: 心理的安全性's **side (black/white) is the environment** and ツンデレ's **tone (ツン/デレ) is the persona**, so `ブラック×デレ` ("you did great even in a place like this — but please take care of yourself") differs from `ブラック×ツン` (cold and curt). With one off, only the other applies.
 
 ## ⏳ Which window, and what it's asking
 
