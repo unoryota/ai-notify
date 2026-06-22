@@ -234,7 +234,7 @@ export const emit = ({ provider = 'default', event = 'done', label = '', message
   // Read-out "skin". Two bipolar axes, each a master ON/OFF toggle + a slider
   // whose CENTER (0.5) is OFF; the further from center, the stronger:
   //   ツンデレ      : 左 ツン(極寒) … 中央 off … 右 デレ(デレデレ)
-  //   心理的安全性 : 左 スパルタ/軍隊 … 中央 off … 右 ホワイト企業/優しい
+  //   心理的安全性 : 左 ブラック企業 … 中央 off … 右 ホワイト企業/優しい
   // 心理的安全性 takes precedence when on; otherwise ツンデレ skins it.
   let outText = speakText;
   let outVol = vol;
@@ -256,7 +256,7 @@ export const emit = ({ provider = 'default', event = 'done', label = '', message
   // Two independent BIPOLAR read-out skins, each with a CENTER (0.5) = OFF and a
   // master ON/OFF toggle (config.tsundere.enabled / isWarEnabled):
   //   ツンデレ      : 左 ツン(極寒) ⇔ 中央OFF ⇔ 右 デレ(デレデレ)
-  //   心理的安全性 : 左 スパルタ/軍隊 ⇔ 中央OFF ⇔ 右 ホワイト企業/優しい
+  //   心理的安全性 : 左 ブラック企業 ⇔ 中央OFF ⇔ 右 ホワイト企業/優しい
   // 心理的安全性 takes precedence as the read-out skin when it's on; otherwise
   // ツンデレ skins it. Urgency only sets VOLUME + WHICH line, never the tone.
   const warSlider = typeof pane.war === 'number' ? pane.war : readWarLevel();
@@ -266,7 +266,7 @@ export const emit = ({ provider = 'default', event = 'done', label = '', message
 
   if (psafetyOn) {
     warActive = true;
-    speakTone = war.styleFor(warSlider); // spartan→ツンツン / white→あまあま
+    speakTone = war.styleFor(warSlider); // black→ツンツン / white→あまあま
     outVol = Math.min(2, Math.max(0, vol * war.volumeMul(warSlider, tier)));
     outText = war.wrap(spokenBody, warSlider, tier, ts.lang || 'ja', nextCounter('war'));
     if (spokenName) outText = joinName(spokenName, outText);

@@ -57,7 +57,7 @@ ai-notify volume [0.0-2.0]                          # 音量の取得／設定
 ai-notify voice [number|name|preview|default]      # 読み上げ音声を選ぶ
 ai-notify voicevox [on <id>|off|speakers|test]     # VOICEVOXの声で読み上げ
 ai-notify tsundere [on|off|level <0-1>|test|status]   # ツンデレ（トグルON/OFF＋両極スライダー・中央=OFF）
-ai-notify safety   [on|off|level <0-1>|test|status]   # 心理的安全性（トグル＋両極・0=スパルタ … 0.5=OFF … 1=ホワイト）
+ai-notify safety   [on|off|level <0-1>|test|status]   # 心理的安全性（トグル＋両極・0=ブラック … 0.5=OFF … 1=ホワイト）
 ai-notify notify [<kind> on|off]                   # 通知する種類（input|permission|done|…）
 ai-notify popup [on|off|image|delay|ignore|portraits]  # 応答待ちキャラポップアップ（macOS）
 ai-notify preset [list|save|load|delete <名前>]     # 設定の保存／復元
@@ -213,14 +213,14 @@ ai-notify tsundere test          # 各イベントで試聴
 
 ```sh
 ai-notify safety on             # マスタースイッチON（off / toggle も）
-ai-notify safety level 0.1      # 0=スパルタMAX … 0.5=OFF … 1=ホワイトMAX
+ai-notify safety level 0.1      # 0=ブラックMAX … 0.5=OFF … 1=ホワイトMAX
 ai-notify safety test           # 両極端を試聴
 ```
 
-- **左 → スパルタ／戦時中の軍隊／鬼軍曹** — 超ハード、怒号、音量↑（「たるんでるぞ、今すぐ立て直せ！！」）。
+- **左 → ブラック企業／詰める鬼上司** — 高圧・怒号・残業強要、音量↑（「今すぐ直して、終わるまで帰れると思わないで！」）。スライダーの track は左ほど黒。
 - **中央 → OFF** — 素の読み上げ。
 - **右 → ホワイト企業／心理的安全性が高い** — 優しく寄り添う、ゆっくり柔らかく（「全然大丈夫ですよ、まずは深呼吸して。失敗は学びです」）。
-- 端に寄るほど強く。**無API・決定論・オフライン**。**VOICEVOX**ならスパルタはツンツン、ホワイトはあまあまの声色に。（`safety` が正式名で、旧 `war` コマンドもエイリアスとして使えます。）
+- 端に寄るほど強く。**無API・決定論・オフライン**。**VOICEVOX**ならブラックはツンツン、ホワイトはあまあまの声色に。（`safety` が正式名で、旧 `war` コマンドもエイリアスとして使えます。）
 
 **ツンデレ**も**心理的安全性**も仕組みは同じ：**トグルスイッチ**でスキンをONにし、**中央OFFの両極スライダー**で口調／側を決めます。メニューバーでは速さ/高さ/抑揚の下にトグル＋スライダーで並び、⚙設定ウィンドウにもあります。各ペインのサブメニューで**全パラメータ**（名前・声・音量・ツンデレ・心理的安全性・速さ/高さ/抑揚）を個別に上書きできます。心理的安全性がONのときはそちらが優先、OFFならツンデレが効きます。
 

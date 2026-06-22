@@ -489,7 +489,7 @@ const cmds = {
   },
 
   // 心理的安全性 (psychological safety): a workplace-environment read-out skin.
-  // BIPOLAR slider — center 0.5 = OFF; left → スパルタ/軍隊, right → ホワイト企業/優しい.
+  // BIPOLAR slider — center 0.5 = OFF; left → ブラック企業, right → ホワイト企業/優しい.
   // Master ON/OFF toggle (internally the "war" enabled flag + level).
   //   safety [on|off|toggle|level <0-1>|test|status]   (alias: war)
   war() {
@@ -497,12 +497,12 @@ const cmds = {
     const config = readConfig();
     const ts = config.tsundere || {};
     const url = config.voicevox?.url || voicevox.DEFAULT_URL;
-    const LEVEL_HINT = '(0=スパルタMAX … 0.5=OFF … 1=ホワイトMAX)';
+    const LEVEL_HINT = '(0=ブラックMAX … 0.5=OFF … 1=ホワイトMAX)';
     const describe = (lvl) => {
       const { mode, intensity } = war.modeOf(lvl);
       if (mode === 'off') return '中央=OFF';
       const pct = Math.round(intensity * 100);
-      return mode === 'spartan' ? `スパルタ ${pct}%` : `ホワイト ${pct}%`;
+      return mode === 'black' ? `ブラック ${pct}%` : `ホワイト ${pct}%`;
     };
 
     // Master ON/OFF toggle. The slider (level) sets WHICH environment + how strong;
@@ -532,7 +532,7 @@ const cmds = {
       // Demo both ends regardless of the current slider, so you hear the range.
       const points = positionals[1]
         ? [Math.min(1, Math.max(0, parseFloat(positionals[1])))]
-        : [0.0, 1.0]; // far-left スパルタ + far-right ホワイト
+        : [0.0, 1.0]; // far-left ブラック + far-right ホワイト
       const sm = config.tts === 'voicevox' ? ts.styleMap || voicevox.resolveStyles(config.voicevox?.speaker, url) : null;
       const rows =
         lang === 'ja'
@@ -1160,7 +1160,7 @@ function demoMenuJson() {
     voices,
     panes,
     tsundere: { enabled: true, level: 0.85 }, // ON → slider active
-    war: { enabled: false, level: 0.78 }, // OFF → slider shows disabled/greyed
+    war: { enabled: true, level: 0.7 }, // ON → black→white gradient slider active
     tts: 'voicevox',
     prosody,
     prosodyRange: VOICE_PROSODY_RANGE,
@@ -1179,7 +1179,7 @@ Usage:
   ai-notify voice [number|name|preview|default]      pick the spoken voice
   ai-notify voicevox [setup|on <id>|off|speakers|test]  speak in VOICEVOX character voices
   ai-notify tsundere [on|off|level <0-1>|test|status]   tsundere persona (toggle + slider: 左ツン/中央OFF/右デレ)
-  ai-notify safety [on|off|level <0-1>|test|status]     心理的安全性 (toggle + slider: 左スパルタ軍隊/中央OFF/右ホワイト企業)
+  ai-notify safety [on|off|level <0-1>|test|status]     心理的安全性 (toggle + slider: 左ブラック企業/中央OFF/右ホワイト企業)
   ai-notify preset [list|save <name>|load <name>|delete <name>]   save/restore volume+tsundere+war+prosody
   ai-notify voice-prosody [speed|pitch|intonation <v>|reset]  VOICEVOX read-out tuning
   ai-notify menubar [install|uninstall|status]       native menu bar bell (macOS)

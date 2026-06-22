@@ -1,79 +1,79 @@
 // 心理的安全性 (psychological safety): skin the spoken read-out as a WORKPLACE
-// whose management style runs from a brutal wartime boot-camp to a gentle, high-
-// psychological-safety white company. A BIPOLAR slider with OFF in the CENTER:
+// whose management style runs from an exploitative BLACK company to a gentle,
+// high-psychological-safety WHITE company. A BIPOLAR slider with OFF in the CENTER:
 //
-//   left  (→0)  : スパルタ / 鬼軍曹 / 戦時中の軍隊 — superhard, barking orders
+//   left  (→0)  : ブラック企業 — 詰める鬼上司 / 残業強要 (oppressive, SFW satire)
 //   center(0.5) : OFF (plain read-out)
 //   right (→1)  : ホワイト企業 — kind, supportive, "無理しないでね"
 //
 // Distance from center = intensity. Deterministic, offline, SFW. Like
 // tsundere.mjs, only the spoken text is wrapped; the desktop banner stays
 // factual. (Internally still called "war" — the state keys / API name predate
-// the rename; the user-facing label everywhere is 心理的安全性.)
+// the rename; the user-facing label everywhere is 心理的安全性 / ブラック⇔ホワイト.)
 
 export const PSAFETY_OFF = 0.5;
 export const OFF_DEADZONE = 0.06;
 export const isOff = (level) => !Number.isFinite(level) || Math.abs(level - PSAFETY_OFF) <= OFF_DEADZONE;
 
-// Slider level → { mode, intensity 0..1 }. center = off; left = spartan (harder
+// Slider level → { mode, intensity 0..1 }. center = off; left = black (harsher
 // toward 0); right = white (kinder toward 1).
 export const modeOf = (level) => {
   if (isOff(level)) return { mode: 'off', intensity: 0 };
-  if (level < PSAFETY_OFF) return { mode: 'spartan', intensity: Math.min(1, (PSAFETY_OFF - level) / PSAFETY_OFF) };
+  if (level < PSAFETY_OFF) return { mode: 'black', intensity: Math.min(1, (PSAFETY_OFF - level) / PSAFETY_OFF) };
   return { mode: 'white', intensity: Math.min(1, (level - PSAFETY_OFF) / (1 - PSAFETY_OFF)) };
 };
 
 // Two graded steps per side, picked by intensity:
-//   spartan: drill (mild 鬼上司) → boot (extreme 戦時中) at the far left
-//   white  : kind (mild 優しい)  → zen  (extreme ホワイト) at the far right
+//   black: crunch (mild 詰め上司) → sweat (extreme ガチブラック) at the far left
+//   white: kind (mild 優しい)     → zen   (extreme ホワイト)     at the far right
 const stepOf = (mode, intensity) =>
-  mode === 'spartan' ? (intensity >= 0.6 ? 'boot' : 'drill') : mode === 'white' ? (intensity >= 0.6 ? 'zen' : 'kind') : 'off';
+  mode === 'black' ? (intensity >= 0.6 ? 'sweat' : 'crunch') : mode === 'white' ? (intensity >= 0.6 ? 'zen' : 'kind') : 'off';
 
-// The VOICEVOX speaking style + tsundere prosody layer this side maps to: spartan
+// The VOICEVOX speaking style + tsundere prosody layer this side maps to: black
 // is harsh (ツンツン), white is warm (あまあま).
 export const styleFor = (level) => {
   const { mode } = modeOf(level);
-  return mode === 'spartan' ? 'tsun' : mode === 'white' ? 'dere' : 'normal';
+  return mode === 'black' ? 'tsun' : mode === 'white' ? 'dere' : 'normal';
 };
 
-// Volume: spartan gets LOUDER with intensity (up to ~1.4×), white gets a touch
+// Volume: black gets LOUDER with intensity (up to ~1.4×), white gets a touch
 // SOFTER (down to ~0.88×). Urgency (tier) nudges a little on top.
 const TIER_VOL = { T3: 1.1, T2: 1.03, T1: 1, T0: 0.99 };
 export const volumeMul = (level, tier) => {
   const { mode, intensity } = modeOf(level);
-  const m = mode === 'spartan' ? 1 + 0.4 * intensity : mode === 'white' ? 1 - 0.12 * intensity : 1;
+  const m = mode === 'black' ? 1 + 0.4 * intensity : mode === 'white' ? 1 - 0.12 * intensity : 1;
   return m * (TIER_VOL[tier] || 1);
 };
 
 // VOICEVOX prosody nudge, scaled by intensity and combined on top of the user's
 // base scales + the tone's own speed. Kept SMALL so it never turns into a 早口:
-// spartan is a touch faster + sharper, white is slower + warmer.
+// black is a touch faster + sharper, white is slower + warmer.
 export const effectiveProsody = (level, base = {}) => {
   const { mode, intensity } = modeOf(level);
   const b = { speed: 1, pitch: 0, intonation: 1, ...base };
   let s = { speed: 1, pitch: 0, intonation: 1 };
-  if (mode === 'spartan') s = { speed: 1 + 0.08 * intensity, pitch: 0.02 * intensity, intonation: 1 + 0.18 * intensity };
+  if (mode === 'black') s = { speed: 1 + 0.08 * intensity, pitch: 0.02 * intensity, intonation: 1 + 0.18 * intensity };
   else if (mode === 'white') s = { speed: 1 - 0.08 * intensity, pitch: 0.0, intonation: 1 + 0.05 * intensity };
   return { speed: b.speed * s.speed, pitch: b.pitch + s.pitch, intonation: b.intonation * s.intonation };
 };
 
-// BANK[lang][step][tier] = [lines]. `{body}` keeps the task gist. spartan steps
-// bark; white steps reassure. Tiers: T3 failure / T2 waiting / T1 done / T0 win.
+// BANK[lang][step][tier] = [lines]. `{body}` keeps the task gist. black steps push
+// (SFW black-company satire); white steps reassure. Tiers: T3 fail / T2 wait / T1 done / T0 win.
 const BANK = {
   ja: {
-    // スパルタ・鬼軍曹（中〜強）
-    drill: {
-      T3: ['{body}。気合が足りん、すぐ直せ！', '{body}だと？言い訳は要らん、やり直し！', '{body}。詰めが甘い。即対応しろ。'],
-      T2: ['{body}。判断はお前の仕事だ、早く決めろ！', '{body}。手が止まってるぞ、進めろ！', '{body}。報告を待ってる暇はない、動け。'],
-      T1: ['{body}。当然だ、次いくぞ。', '{body}。それで普通だ、気を抜くな。', '{body}。よし、止まるな。続行。'],
-      T0: ['{body}。…まあいい、悪くない。だが満足するな。', '{body}か。合格点だ。次はもっと上げろ。', '{body}。やればできる。気を抜くなよ。'],
+    // ブラック企業・詰める上司（中）
+    crunch: {
+      T3: ['{body}。は？それ今日中に直して。残業してでも。', '{body}？言い訳はいいから巻きで。', '{body}。詰めが甘い。やり直し、急いで。'],
+      T2: ['{body}。判断はそっちの仕事でしょ、早く。', '{body}。手、止まってるよ？回して。', '{body}。報告を待つ時間ないから、進めて。'],
+      T1: ['{body}。で、当たり前だよね。次。', '{body}。それくらい普通。気を抜かないで。', '{body}。はい次いこ、止まらないで。'],
+      T0: ['{body}。…まあ及第点。でも満足しないで。', '{body}か。合格ね。次はもっと上げて。', '{body}。やればできるじゃん。気を抜かないで。'],
     },
-    // 戦時中の軍隊（超ハード・最左端）
-    boot: {
-      T3: ['{body}！たるんでるぞ、今すぐ立て直せ！！', '被弾！{body}！何をしている、急げ！！', '{body}だと！？言い訳無用、直ちに対処！！'],
-      T2: ['{body}！迷うな、即断即決！！', '{body}！貴様の判断待ちだ、早くしろ！！', '{body}！手を止めるな、前進あるのみ！！'],
-      T1: ['{body}！当然だ、休むな、次！！', '{body}！その程度で誇るな、続行！！', '{body}！よし、気を抜くな、進め！！'],
-      T0: ['{body}！…ほう、上出来だ。だが慢心するな！', '{body}！合格。即、次の任務にかかれ！！', '{body}！見事だ。気を緩めるなよ！！'],
+    // ガチのブラック企業（超ハード・最左端）
+    sweat: {
+      T3: ['{body}！？は？今すぐ直して、終わるまで帰れると思わないで！', '{body}！どうすんのこれ、巻きで巻きで！', '{body}！言い訳は評価に響くよ、すぐ対応！'],
+      T2: ['{body}！迷ってる暇ある？即決して、今！', '{body}！そっちの判断待ち、早く回して！', '{body}！手を止めない、とにかく前に！'],
+      T1: ['{body}！当然でしょ、休まず次！', '{body}！その程度で満足しないで、続行！', '{body}！はい次、スピード上げて！'],
+      T0: ['{body}！…ほー、やるじゃん。で、慢心しないで！', '{body}！合格。即、次のタスク入って！', '{body}！いいね、でも気を緩めないで！'],
     },
     // ホワイト企業・優しい上司（中）
     kind: {
@@ -91,17 +91,17 @@ const BANK = {
     },
   },
   en: {
-    drill: {
-      T3: ['{body}. Not good enough — fix it, now.', '{body}? No excuses. Do it again.', '{body}. Sloppy. Handle it immediately.'],
-      T2: ['{body}. Deciding is your job — call it.', "{body}. You've stalled. Keep moving.", "{body}. No time to wait on a report. Move."],
-      T1: ['{body}. As expected. Next.', "{body}. That's the baseline. Stay sharp.", '{body}. Good. Don’t stop.'],
-      T0: ['{body}. …Fine. Not bad. Don’t get comfortable.', '{body}. Passing. Aim higher next time.', '{body}. You can do it. Stay focused.'],
+    crunch: {
+      T3: ['{body}. Fix it today — stay late if you have to.', '{body}? Skip the excuses, pick up the pace.', '{body}. Sloppy. Redo it, fast.'],
+      T2: ['{body}. Deciding is your job — quickly.', "{body}. You've stalled — keep it moving.", '{body}. No time to wait on a report. Go.'],
+      T1: ['{body}. Obviously. Next.', "{body}. That's just baseline. Stay on it.", "{body}. Next — don't stop."],
+      T0: ["{body}. …Passable. Don't get comfortable.", '{body}. Fine, you pass. Aim higher.', '{body}. See, you can do it. Stay sharp.'],
     },
-    boot: {
-      T3: ['{body}! Pull it together, NOW!', "We're hit! {body}! Move it!!", '{body}?! No excuses — act, immediately!!'],
-      T2: ['{body}! No hesitating — decide!!', '{body}! Waiting on your call — hurry!!', '{body}! Hands moving — advance!!'],
-      T1: ['{body}! Obviously. No rest — next!!', "{body}! Don't brag, keep going!!", '{body}! Good. Stay sharp. Move!!'],
-      T0: ['{body}! …Hah. Well done. Don’t get cocky!', '{body}! Pass. On to the next, GO!!', "{body}! Excellent. Don't let up!!"],
+    sweat: {
+      T3: ["{body}?! Fix it now — don't even think about leaving till it's done!", "{body}! What's the plan?! Move, move!", '{body}! Excuses go on your review — handle it!'],
+      T2: ['{body}! No time to dither — decide, NOW!', '{body}! Waiting on your call — hurry up!', "{body}! Don't stop — push it forward!"],
+      T1: ['{body}! Obviously. No break — next!', "{body}! Don't get satisfied — keep going!", '{body}! Next — pick up the speed!'],
+      T0: ["{body}! …Huh, not bad. Don't get cocky!", '{body}! Pass. Straight to the next task!', "{body}! Good — don't let up!"],
     },
     kind: {
       T3: ["{body}, looks like. It's okay — let's fix it together, no rush.", '{body}, I hear. Don’t worry, we can recover from here.', "{body}. No blame here — can you share what's going on?"],

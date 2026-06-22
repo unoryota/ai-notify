@@ -58,7 +58,7 @@ ai-notify volume [0.0-2.0]                          # get/set output volume
 ai-notify voice [number|name|preview|default]      # pick the spoken voice
 ai-notify voicevox [on <id>|off|speakers|test]     # speak in VOICEVOX voices
 ai-notify tsundere [on|off|level <0-1>|test|status]   # tsundere persona (toggle + bipolar slider; center = off)
-ai-notify safety   [on|off|level <0-1>|test|status]   # 心理的安全性 (toggle + bipolar slider; 0=スパルタ … 0.5=off … 1=ホワイト)
+ai-notify safety   [on|off|level <0-1>|test|status]   # 心理的安全性 (toggle + bipolar slider; 0=ブラック … 0.5=off … 1=ホワイト)
 ai-notify notify [<kind> on|off]                   # which events alert (input|permission|done|…)
 ai-notify popup [on|off|image|delay|ignore|portraits]  # "waiting" character popup (macOS)
 ai-notify preset [list|save|load|delete <name>]    # save / restore your settings
@@ -214,14 +214,14 @@ A separate read-out skin: the **workplace's management style**, as a **bipolar s
 
 ```sh
 ai-notify safety on             # flip the master switch on (off / toggle too)
-ai-notify safety level 0.1      # 0 = スパルタMAX … 0.5 = off … 1 = ホワイトMAX
+ai-notify safety level 0.1      # 0 = ブラックMAX … 0.5 = off … 1 = ホワイトMAX
 ai-notify safety test           # hear both extremes
 ```
 
-- **Left → スパルタ / wartime military / 鬼軍曹** — superhard, barking orders, louder ("たるんでるぞ、今すぐ立て直せ！！").
+- **Left → ブラック企業 (black company) / a relentless boss** — high-pressure, barking, "stay till it's done", louder ("今すぐ直して、終わるまで帰れると思わないで！"). The slider track is darker toward the left.
 - **Center → off** — plain read-out.
 - **Right → ホワイト企業 / high psychological safety** — kind, supportive, gentle, softer ("全然大丈夫ですよ、まずは深呼吸して。失敗は学びです").
-- Closer to either end = stronger. **Deterministic, offline** — phrase banks, no API. With **VOICEVOX**, spartan picks the character's ツンツン style and white picks あまあま. (`safety` is the friendly name; the old `war` command still works as an alias.)
+- Closer to either end = stronger. **Deterministic, offline** — phrase banks, no API. With **VOICEVOX**, black picks the character's ツンツン style and white picks あまあま. (`safety` is the friendly name; the old `war` command still works as an alias.)
 
 Both **ツンデレ** and **心理的安全性** work the same way: a **toggle switch** turns the skin on, and a **center-OFF bipolar slider** sets the tone/side. They live as toggle + slider in the menu bar (below 速さ/高さ/抑揚) and in the ⚙ settings window, and every per-pane submenu can override **all** of these (name, voice, volume, ツンデレ, 心理的安全性, 速さ/高さ/抑揚) individually. When 心理的安全性 is on it takes precedence as the read-out skin; otherwise ツンデレ does.
 
