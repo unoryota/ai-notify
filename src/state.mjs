@@ -328,6 +328,33 @@ export const readPanes = () =>
     .map(([tty, v]) => ({ tty, label: v.label || '', ts: v.ts || 0 }))
     .sort((a, b) => b.ts - a.ts);
 
+// Garbage-collect pane / waiting records whose tty no longer has a live agent.
+// These files are keyed by tty device path and persist on disk, so after a
+// reboot (or after an agent exits) they leave "ghost" panes in the menu and
+// orphaned "waiting for input" entries that nothing ever clears — the agent
+// that would clear them was killed before it could. `liveTtys` is the set of
+// ttys still running an agent (from util.liveAgentTtys()); anything not in it
+// is dead and gets dropped. Pure fs so it stays testable; the caller supplies
+// the live set. Per-pane voice settings (pane-voices.json) are intentional user
+// config and are left untouched. Returns the number of records removed.
+export const reapDeadPanes = (liveTtys = []) => {
+  const live = new Set(liveTtys);
+  let removed = 0;
+  for (const path of [panesPath(), waitingPath()]) {
+    const all = readJson(path, {});
+    let changed = false;
+    for (const tty of Object.keys(all)) {
+      if (!live.has(tty)) {
+        delete all[tty];
+        removed++;
+        changed = true;
+      }
+    }
+    if (changed) writeJson(path, all);
+  }
+  return removed;
+};
+
 // Per-pane settings: { tts, speaker, voice, volume, tsundere }. Any subset may
 // be set (tsundere = a 0–1 baseline level override; null/absent = follow global).
 export const readPaneSetting = (tty) => (tty ? readJson(paneVoicesPath(), {})[tty] || {} : {});

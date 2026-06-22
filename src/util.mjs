@@ -71,3 +71,28 @@ export const controllingTty = () => {
   }
   return null;
 };
+
+// TTYs (e.g. "/dev/ttys010") that currently have a live agent process attached.
+// Used to (a) list open panes before they fire a notification and (b) reap
+// stale pane/waiting records whose process is gone (e.g. after a reboot — the
+// state files persist on disk but the agents that owned those ttys are dead).
+export const liveAgentTtys = () => {
+  try {
+    const out = execFileSync('ps', ['-Ao', 'tty=,command='], {
+      stdio: ['ignore', 'pipe', 'ignore'],
+      maxBuffer: 1 << 22,
+    }).toString();
+    const ttys = new Set();
+    for (const line of out.split('\n')) {
+      const m = line.match(/^(\S+)\s+(.*)$/);
+      if (!m) continue;
+      const [, tty, cmd] = m;
+      if (tty === '??' || tty === '?') continue;
+      if (/ai-notify|menubar/.test(cmd)) continue; // skip our own hook/agent
+      if (/\bclaude\b|\bcodex\b|\bgemini\b/i.test(cmd)) ttys.add(`/dev/${tty}`);
+    }
+    return [...ttys];
+  } catch {
+    return [];
+  }
+};

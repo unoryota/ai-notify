@@ -519,6 +519,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             b.target = self
             b.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
+        // Reap ghost panes / orphaned "waiting" entries left on disk by dead
+        // ttys (e.g. after a reboot) BEFORE the first render reads them, so we
+        // never flash stale panes or a stuck "waiting for input" popup.
+        State.cli(["reap"], capture: true)
         render()
         timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             self?.render()

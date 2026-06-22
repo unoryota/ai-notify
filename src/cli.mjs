@@ -6,7 +6,7 @@ import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { execSync, execFileSync } from 'node:child_process';
 import { providers, byId } from './providers/index.mjs';
 import { emit } from './notify.mjs';
-import { deriveLabel, cliInvocation, isEphemeralInstall, controllingTty } from './util.mjs';
+import { deriveLabel, cliInvocation, isEphemeralInstall, controllingTty, liveAgentTtys } from './util.mjs';
 import { curatedVoices, resolveVoice, previewVoice } from './voices.mjs';
 import * as menubar from './menubar.mjs';
 import { translate } from './translate.mjs';
@@ -32,6 +32,7 @@ import {
   resetVoiceProsody,
   VOICE_PROSODY_RANGE,
   readPanes,
+  reapDeadPanes,
   readPaneSetting,
   updatePaneSetting,
   firstRunNudge,
@@ -90,23 +91,7 @@ const readStdinJson = () => {
 
 // Terminals (ttys) currently running a wired agent — so all open panes can be
 // assigned a voice from the menu bar without first firing a notification.
-const livePanes = () => {
-  try {
-    const out = execSync('ps -Ao tty=,command=', { encoding: 'utf8', maxBuffer: 1 << 22 });
-    const ttys = new Set();
-    for (const line of out.split('\n')) {
-      const m = line.match(/^(\S+)\s+(.*)$/);
-      if (!m) continue;
-      const [, tty, cmd] = m;
-      if (tty === '??' || tty === '?') continue;
-      if (/ai-notify|menubar/.test(cmd)) continue; // skip our own hook/agent
-      if (/\bclaude\b|\bcodex\b|\bgemini\b/i.test(cmd)) ttys.add(`/dev/${tty}`);
-    }
-    return [...ttys];
-  } catch {
-    return [];
-  }
-};
+const livePanes = liveAgentTtys;
 
 const cmds = {
   init() {
@@ -904,6 +889,15 @@ const cmds = {
     log(`voice prosody ${key} → ${next[key]}`);
   },
 
+  // Garbage-collect ghost panes and orphaned "waiting" entries whose tty no
+  // longer runs an agent. The menu bar app calls this at startup so a reboot
+  // (which leaves the on-disk state files keyed by now-dead ttys) doesn't show
+  // stale panes / waiting popups. Also runs implicitly on every `menu-json`.
+  reap() {
+    const removed = reapDeadPanes(liveAgentTtys());
+    log(`reaped ${removed} dead pane record${removed === 1 ? '' : 's'}`);
+  },
+
   // Machine-readable state for the menu bar agent: mute, volume, the selectable
   // voices, and the recently-active panes (for per-pane assignment). Not human.
   'menu-json'() {
@@ -912,6 +906,11 @@ const cmds = {
     // fixture instead. Used by scripts/capture.mjs with AI_NOTIFY_DEMO=1 so every
     // generated screenshot contains only made-up data. See docs in capture.mjs.
     if (process.env.AI_NOTIFY_DEMO) return log(JSON.stringify(demoMenuJson()));
+    // Drop ghost panes / orphaned waiting entries (dead ttys) before rendering,
+    // so opening the menu always reflects only live agents. Reuse this live set
+    // below instead of scanning `ps` a second time.
+    const live = liveAgentTtys();
+    reapDeadPanes(live);
     const config = readConfig();
     const url = config.voicevox?.url || voicevox.DEFAULT_URL;
     const chars = voicevox.isAvailable(url) ? voicevox.listCharacters(url) : [];
@@ -944,7 +943,7 @@ const cmds = {
     const warGlobal = readWarLevel();
     const prosGlobal = readVoiceProsody();
     const recorded = new Map(readPanes().map((p) => [p.tty, p.label]));
-    const ttys = new Set([...livePanes(), ...recorded.keys()]);
+    const ttys = new Set([...live, ...recorded.keys()]);
     const panes = [...ttys].map((tty) => {
       const s = readPaneSetting(tty);
       const pros = { ...prosGlobal, ...(s.prosody || {}) };
