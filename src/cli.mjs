@@ -427,10 +427,9 @@ const cmds = {
       for (const k of keys) {
         const s = samples[k];
         const tier = tsundere.classifyUrgency(s.event, s.raw, s.body);
-        const eff = tsundere.effectiveLevel(level, tier, ts.urgencyShift !== false);
-        const text = tsundere.wrap(s.body, eff, tier, lang, 0);
+        const tone = tsundere.axisFor(level); // tone follows the slider, not urgency
+        const text = tsundere.wrap(s.body, level, tier, lang, 0);
         const mul = tsundere.volumeMul(tier, ts.volumeBoost !== false);
-        const tone = tsundere.axisFor(eff);
         log(`  [${tier} ×${mul} ${tone}] ${text}`);
         if (sm) {
           const speaker = sm[tone] ?? config.voicevox?.speaker;
@@ -574,10 +573,9 @@ const cmds = {
               { tier: 'T0', body: 'all tests passed' },
             ];
       for (const s of rows) {
-        const eff = tsundere.effectiveLevel(aff, s.tier, ts.urgencyShift !== false);
-        const text = war.wrap(s.body, level, eff, lang, 0);
+        const tone = tsundere.axisFor(aff); // operator tone follows the slider
+        const text = war.wrap(s.body, level, aff, lang, 0);
         const mul = war.volumeMul(level, s.tier);
-        const tone = tsundere.axisFor(eff);
         log(`  [${s.tier} ×${mul.toFixed(2)} ${tone}] ${text}`);
         if (sm) {
           const speaker = sm[tone] ?? config.voicevox?.speaker;

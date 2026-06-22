@@ -202,18 +202,14 @@ Key-less and no cost (one HTTP request; falls back to a localized template offli
 
 ## 💢 Tsundere mode (optional, fun)
 
-Give the spoken read-out a tsundere persona whose tone tracks **how urgent the event is**:
-
-- a **failure / dangerous approval** → a louder, sharp **ツン** scolding ("Hey! The build failed — don't just sit there, fix it!")
-- a **clean pass / no issues** → a warm **デレ** "good job" ("...heh, not bad. N-not that I'm impressed or anything.")
+Give the spoken read-out a tsundere persona. The **slider sets the tone**: left **デレ** (sweet), right **ツン** (harsh), **center = off**.
 
 ```sh
-ai-notify tsundere on            # off by default
-ai-notify tsundere level 0.6     # baseline 0 (デレ) … 1 (ツン); the menu bar has a slider
-ai-notify tsundere test          # hear T3/T2/T1/T0 samples
+ai-notify tsundere level 0.7     # 0 = デレ … 0.5 = off … 1 = ツン; the menu bar has a slider
+ai-notify tsundere test          # hear it across event types
 ```
 
-It's **deterministic and offline** — phrase banks, no API, no cost. The urgency is a keyword heuristic over the agent's text (so it's best-effort, not a real severity signal), and the desktop banner stays factual. With **VOICEVOX** the level also picks the character's own **ツンツン / あまあま** style, so the same character actually *sounds* harsher or sweeter. `lang` supports `ja` and `en`.
+The tone always matches where you set the slider — set it to ツン and you get ツン even on a success (a *reluctant* "…not bad, I guess", not a gushing デレ one). The event's urgency only changes **which line** is picked and the **volume** (a failure is louder), never the ツン⇄デレ tone. **Deterministic, offline** — phrase banks, no API. With **VOICEVOX** the tone also picks the character's own **ツンツン / あまあま** style. `lang`: `ja` / `en`.
 
 ## ⚔️ War mode (optional, fun)
 

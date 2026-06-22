@@ -260,23 +260,25 @@ export const emit = ({ provider = 'default', event = 'done', label = '', message
   const warSlider = typeof pane.war === 'number' ? pane.war : readWarLevel();
   const tsundereActive = Math.abs(tsLevel - 0.5) > 0.04;
 
+  // The TONE (デレ / 普通 / ツン) follows the SLIDER directly — right = always ツン,
+  // left = always デレ — so it never contradicts where you set it. Urgency only
+  // affects the VOLUME and WHICH line is picked (a success at ツン = a reluctant
+  // tsundere "good job", not a gushing デレ one), never the ツン⇄デレ tone itself.
   if (warSlider > 0.04) {
     warActive = true;
     warIntensity = Math.min(1, warSlider);
-    const eff = tsundere.effectiveLevel(tsLevel, tier, ts.urgencyShift !== false);
-    speakTone = tsundere.axisFor(eff);
+    speakTone = tsundere.axisFor(tsLevel);
     outVol = Math.min(2, Math.max(0, vol * war.volumeMul(warIntensity, tier)));
-    outText = war.wrap(spokenBody, warIntensity, eff, ts.lang || 'ja', nextCounter('war'));
+    outText = war.wrap(spokenBody, warIntensity, tsLevel, ts.lang || 'ja', nextCounter('war'));
     if (spokenName) outText = joinName(spokenName, outText);
     if (tts === 'voicevox') {
       const sm = ts.styleMap || voicevox.resolveStyles(outSpeaker, config.voicevox?.url);
       if (sm && sm[speakTone] != null) outSpeaker = sm[speakTone];
     }
   } else if (tsundereActive) {
-    const eff = tsundere.effectiveLevel(tsLevel, tier, ts.urgencyShift !== false);
-    speakTone = tsundere.axisFor(eff);
+    speakTone = tsundere.axisFor(tsLevel);
     outVol = Math.min(2, Math.max(0, vol * tsundere.volumeMul(tier, ts.volumeBoost !== false)));
-    outText = tsundere.wrap(spokenBody, eff, tier, ts.lang || 'ja', nextCounter('tsundere'));
+    outText = tsundere.wrap(spokenBody, tsLevel, tier, ts.lang || 'ja', nextCounter('tsundere'));
     if (spokenName) outText = joinName(spokenName, outText);
     if (tts === 'voicevox') {
       const sm = ts.styleMap || voicevox.resolveStyles(outSpeaker, config.voicevox?.url);
