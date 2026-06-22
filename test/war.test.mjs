@@ -64,6 +64,19 @@ test('wrap: side × tone COMBINATION — ブラック×デレ ≠ ブラック×
   assert.match(blackTsun, /(言い訳|詰め|残業)/);
 });
 
+test('wrap: ツン100% (cold) combo has ZERO デレ across all tiers/rotations', () => {
+  // The bug: at ツン-max the combination must never leak a sweet/caring line.
+  const sweet = /(ごめん|一緒|頑張ろ|無理させ|大好き|えらい|すごい|誇らし|ありがと|休んで|大丈夫|そばに|信じて|お祝い|心配してない|別に心配)/;
+  for (const side of [0.0, 1.0]) {
+    for (const tier of ['T3', 'T2', 'T1', 'T0']) {
+      for (let r = 0; r < 8; r++) {
+        const line = wrap('テスト', side, tier, 'ja', r, 'cold');
+        assert.doesNotMatch(line, sweet, `cold leaked デレ (side ${side}, ${tier}, rot ${r}): ${line}`);
+      }
+    }
+  }
+});
+
 test('wrap: ホワイト×デレ is the most wholesome combo', () => {
   const whiteDere = wrap('テスト全部パス', 1.0, 'T0', 'ja', 0, 'dere');
   assert.match(whiteDere, /(最高|大好き|誇らし|すごい)/);

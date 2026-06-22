@@ -270,12 +270,19 @@ export const emit = ({ provider = 'default', event = 'done', label = '', message
 
   if (psafetyOn) {
     warActive = true;
-    // The persona's voice/word tone follows ツンデレ when it's on; otherwise the
-    // side's own default (black→ツン, white→デレ).
-    const tone = tsundereOn ? tsStyle : war.styleFor(warSlider);
-    speakTone = tone;
+    // The word tone follows ツンデレ when it's on — using the SAME 5-step scale as
+    // tsundere (cold/tsun/normal/dere/deredere) so ツン100% maps to the icy `cold`
+    // cell with NO hidden デレ. Otherwise the side's own default (black→ツン/white→デレ).
+    const wordTone = tsundereOn
+      ? (() => {
+          const pt = tsundere.phraseTone(tsLevel); // cold|tsun|normal|dere|deredere
+          return pt === 'deredere' ? 'dere' : pt; // war banks: cold|tsun|normal|dere
+        })()
+      : war.styleFor(warSlider);
+    // VOICEVOX style only knows tsun/dere/normal — cold speaks in the ツン voice.
+    speakTone = wordTone === 'cold' ? 'tsun' : wordTone;
     outVol = Math.min(2, Math.max(0, vol * war.volumeMul(warSlider, tier)));
-    outText = war.wrap(spokenBody, warSlider, tier, ts.lang || 'ja', nextCounter('war'), tone);
+    outText = war.wrap(spokenBody, warSlider, tier, ts.lang || 'ja', nextCounter('war'), wordTone);
     if (spokenName) outText = joinName(spokenName, outText);
     if (tts === 'voicevox') {
       const sm = ts.styleMap || voicevox.resolveStyles(outSpeaker, config.voicevox?.url);

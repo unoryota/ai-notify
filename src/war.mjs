@@ -87,6 +87,37 @@ const BANK = {
           '{body}。…ふん、上出来。慢心しないでよ。',
         ],
       },
+      // ブラック×極寒(cold): ツン100% — 隠れデレ一切なし。冷たく突き放す。
+      cold: {
+        T3: [
+          '{body}。…はぁ。で、いつ直るの。',
+          '{body}。言い訳は要らない。さっさと直して。',
+          '{body}。…呆れた。今すぐ。',
+          '{body}。あなたの責任でしょ。直す。',
+          '{body}。…で？黙って手を動かして。',
+        ],
+        T2: [
+          '{body}。…早く決めて。',
+          '{body}。わたしに聞かないで、自分で。',
+          '{body}。…まだ？時間の無駄。',
+          '{body}。判断くらい即座に。',
+          '{body}。…遅い。',
+        ],
+        T1: [
+          '{body}。ふーん。',
+          '{body}。当然。次。',
+          '{body}。…で？報告は要らない。',
+          '{body}。それで普通でしょ。',
+          '{body}。…はい、次。',
+        ],
+        T0: [
+          '{body}。…で、それが何か？',
+          '{body}。当たり前でしょ。いちいち言わないで。',
+          '{body}。ふん、当然の結果ね。',
+          '{body}。…別に。それくらい普通。',
+          '{body}。…で？次いって。',
+        ],
+      },
       // ブラック×デレ: 優しいのにブラック環境で急かしてくる（板挟み）
       dere: {
         T3: [
@@ -182,6 +213,37 @@ const BANK = {
           '{body}…！し、しっかりやったじゃない。…次も、期待してるから。',
         ],
       },
+      // ホワイト×極寒(cold): ツン100% — 環境はホワイトだが本人は無感情・丁寧だが冷徹。隠れデレ無し。
+      cold: {
+        T3: [
+          '{body}ですね。…ご自分で対応を。',
+          '{body}とのこと。…で、いつ直りますか。',
+          '{body}。…報告は結構です、直してください。',
+          '{body}。…さあ。あなたの担当でしょう。',
+          '{body}ですか。…お早めに。',
+        ],
+        T2: [
+          '{body}。…ご自分で判断を。',
+          '{body}。…で、どちらに。早めに。',
+          '{body}とのこと。…私は関与しません。',
+          '{body}。…決まりましたら。',
+          '{body}。…お早めにどうぞ。',
+        ],
+        T1: [
+          '{body}。…そうですか。',
+          '{body}、完了ですね。…以上です。',
+          '{body}。…当然の業務かと。',
+          '{body}。…次へ。',
+          '{body}ですね。…承知しました。',
+        ],
+        T0: [
+          '{body}。…そうですか、結構です。',
+          '{body}ですね。…当然の結果かと。',
+          '{body}。…特に問題は。次へどうぞ。',
+          '{body}。…はい、確認しました。',
+          '{body}とのこと。…以上です。',
+        ],
+      },
       // ホワイト×デレ: 最ホワイト＋甘々（最高に心理的安全）
       dere: {
         T3: [
@@ -254,6 +316,12 @@ const BANK = {
         T1: ['{body}. Obviously. Next.', "{body}. That's just baseline. Stay sharp.", "{body}. Done? Good — don't stop."],
         T0: ["{body}. …Passable. Don't get comfortable.", '{body}. You pass. Aim higher.', "{body}. Fine. Don't let it go to your head."],
       },
+      cold: {
+        T3: ['{body}. …Figures. So when is it fixed?', "{body}. No excuses. Just fix it.", '{body}. …Your responsibility. Handle it.'],
+        T2: ['{body}. …Just decide already.', "{body}. Don't ask me — decide it yourself.", '{body}. …Still? Waste of time.'],
+        T1: ['{body}. …And?', '{body}. Obviously. Next.', "{body}. …Spare me the report."],
+        T0: ['{body}. …So what?', "{body}. Of course. Don't bother telling me.", '{body}. …Nothing special. Next.'],
+      },
       dere: {
         T3: ["{body}, huh… I'm sorry, I hate to push, but it's due today. Let's fix it together, okay?", "{body}… you okay? We have to hurry though — sorry, let's get through it.", "{body}… it's rough, I know. Just this stretch — I'll help, I promise."],
         T2: ["{body}… I really don't want to rush you, but could you decide soon, please?", "{body}… tell me what you want to do? Sorry, we're short on time.", "{body}. I'll help you decide — sorry there's so little room today."],
@@ -273,6 +341,12 @@ const BANK = {
         T2: ["{body}. …I won't rush you, so decide it yourself.", "{body}. …Hmph, take your time. I'll wait.", "{body}. …Whichever. Pick what you're happy with."],
         T1: ["{body}, done. …Well, you did fine. Go rest.", "{body}. …Not that I'm praising you, but don't overdo it.", "{body}. …Good work. …There, I said it. Now rest."],
         T0: ["{body}…! F-fine, that's passable. …Get some rest, not that I care.", "{body}. …Not bad. You're not overworking, are you?", "{body}…! O-okay, I'm a little impressed. Keep it up."],
+      },
+      cold: {
+        T3: ['{body}. …Please handle it yourself.', '{body}. …So, when will it be fixed?', "{body}. …Spare the report — just fix it."],
+        T2: ['{body}. …Decide it yourself.', '{body}. …Which one. Soon, please.', "{body}. …I'm not involved in this."],
+        T1: ['{body}. …I see.', "{body}, done. …That's all.", "{body}. …Routine, I'd assume. Next."],
+        T0: ['{body}. …I see. Fine.', '{body}. …As expected, I suppose.', '{body}. …No issues. Move on.'],
       },
       dere: {
         T3: ["{body} happened. It's totally okay — take a breath. Let's do it together, no rush.", "{body}, aw… you're not to blame. Let's go slow, okay?", "{body}… it's fine, failure is just learning. We'll fix it together."],
