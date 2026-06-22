@@ -103,11 +103,12 @@ export const setWarEnabled = (on) => {
   else rmSync(warFlagPath(), { force: true });
 };
 export const readWarLevel = () => {
+  // 0 = off (平時, left/min). Default off so it never speaks unless turned up.
   try {
     const v = parseFloat(readFileSync(warLevelPath(), 'utf8'));
-    return Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 0.5;
+    return Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 0;
   } catch {
-    return 0.5;
+    return 0;
   }
 };
 export const setWarLevel = (v) => {

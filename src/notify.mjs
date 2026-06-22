@@ -255,12 +255,14 @@ export const emit = ({ provider = 'default', event = 'done', label = '', message
     if (f != null) return f;
     return typeof ts.level === 'number' ? ts.level : 0.5;
   })();
+  // アドレナリン is a MONOTONIC intensity slider: left/min (0) = off (平時), and
+  // it rises toward 危機 at max. (Tsundere stays bidirectional: center = off.)
   const warSlider = typeof pane.war === 'number' ? pane.war : readWarLevel();
   const tsundereActive = Math.abs(tsLevel - 0.5) > 0.04;
 
-  if (Math.abs(warSlider - 0.5) > 0.04) {
+  if (warSlider > 0.04) {
     warActive = true;
-    warIntensity = Math.min(1, Math.abs(warSlider - 0.5) * 2);
+    warIntensity = Math.min(1, warSlider);
     const eff = tsundere.effectiveLevel(tsLevel, tier, ts.urgencyShift !== false);
     speakTone = tsundere.axisFor(eff);
     outVol = Math.min(2, Math.max(0, vol * war.volumeMul(warIntensity, tier)));

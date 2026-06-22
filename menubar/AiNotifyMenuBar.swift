@@ -410,7 +410,7 @@ final class SettingsWindowController: NSObject {
                         onChange: { State.cli(["voice-prosody", "intonation", String(format: "%.3f", $0)]) }),
         ]
         var y = 264
-        let header = NSTextField(labelWithString: "ツンデレ/アドレナリンは中央＝OFF（中央から離すほど強い）")
+        let header = NSTextField(labelWithString: "ツンデレ=中央でOFF（左デレ/右ツン）・アドレナリン=左端でOFF→右で危機")
         header.frame = NSRect(x: 16, y: 286, width: 440, height: 16)
         header.font = .systemFont(ofSize: 11); header.textColor = .secondaryLabelColor
         content.addSubview(header)

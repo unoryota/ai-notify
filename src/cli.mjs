@@ -529,12 +529,12 @@ const cmds = {
     const ts = config.tsundere || {};
     const url = config.voicevox?.url || voicevox.DEFAULT_URL;
 
-    // アドレナリン is slider-only (center 0.5 = off). on/off/toggle move the level.
+    // アドレナリン is a monotonic intensity slider: 0 = off (min), 1 = 危機 (max).
     if (sub === 'on' || sub === 'off' || sub === 'toggle') {
       const cur = readWarLevel();
-      const active = Math.abs(cur - 0.5) > 0.04;
+      const active = cur > 0.04;
       const want = sub === 'toggle' ? !active : sub === 'on';
-      const next = want ? (active ? cur : 0.85) : 0.5;
+      const next = want ? (active ? cur : 0.85) : 0;
       setWarLevel(next);
       if (want && config.tts === 'voicevox') {
         const sm = voicevox.resolveStyles(config.voicevox?.speaker, url);
@@ -543,15 +543,15 @@ const cmds = {
           writeConfig(config);
         }
       }
-      log(want ? `⚔️ アドレナリン ON（level ${next}・中央0.5でOFF）` : 'アドレナリン OFF（中央 0.5）');
+      log(want ? `⚔️ アドレナリン ON（level ${next}・最小0でOFF）` : 'アドレナリン OFF（最小 0）');
       return;
     }
-    // The slider value: 0.5 = off; intensity = distance from center (→ 危機).
-    const intensityOf = (slider) => Math.min(1, Math.abs(slider - 0.5) * 2);
+    // The slider value IS the intensity: 0 = off (平時), 1 = 危機.
+    const intensityOf = (slider) => Math.min(1, Math.max(0, slider));
     if (sub === 'level') {
       const arg = positionals[1];
-      if (arg === undefined) return log(`アドレナリン slider: ${readWarLevel()}  (中央0.5=OFF・離すほど強い)`);
-      return log(`⚔️ アドレナリン slider → ${setWarLevel(arg)}  (中央0.5=OFF・離すほど強い)`);
+      if (arg === undefined) return log(`アドレナリン level: ${readWarLevel()}  (0=OFF/平時 〜 1=危機)`);
+      return log(`⚔️ アドレナリン level → ${setWarLevel(arg)}  (0=OFF/平時 〜 1=危機)`);
     }
     if (sub === 'test') {
       const lang = ts.lang || 'ja';
@@ -595,9 +595,9 @@ const cmds = {
     // status
     const wslider = readWarLevel();
     const wint = intensityOf(wslider);
-    const wactive = Math.abs(wslider - 0.5) > 0.04;
-    log(`アドレナリン: ${wactive ? `⚔️ ON (${war.band(wint)})` : 'OFF（中央 0.5）'}`);
-    log(`  slider: ${wslider}  → intensity ${wint.toFixed(2)}  (中央0.5=OFF)`);
+    const wactive = wslider > 0.04;
+    log(`アドレナリン: ${wactive ? `⚔️ ON (${war.band(wint)})` : 'OFF（最小 0）'}`);
+    log(`  level: ${wslider}  → intensity ${wint.toFixed(2)}  (0=OFF/平時 〜 1=危機)`);
     log(`  好感度 (tsundere level): ${readTsundereLevel() != null ? readTsundereLevel() : ts.level ?? 0.5}`);
     if (!wactive) log('\nON:  ai-notify war on    試聴:  ai-notify war test');
   },

@@ -58,7 +58,7 @@ ai-notify volume [0.0-2.0]                          # get/set output volume
 ai-notify voice [number|name|preview|default]      # pick the spoken voice
 ai-notify voicevox [on <id>|off|speakers|test]     # speak in VOICEVOX voices
 ai-notify tsundere [level <0-1>|test|status]       # tsundere persona (slider; center 0.5 = off)
-ai-notify war [level <0-1>|test|status]            # アドレナリン / war mode (slider; center 0.5 = off)
+ai-notify war [level <0-1>|test|status]            # アドレナリン / war mode (slider; 0 = off … 1 = 危機)
 ai-notify notify [<kind> on|off]                   # which events alert (input|permission|done|…)
 ai-notify popup [on|off|image|delay|ignore|portraits]  # "waiting" character popup (macOS)
 ai-notify preset [list|save|load|delete <name>]    # save / restore your settings
@@ -124,7 +124,7 @@ ai-notify menubar install   # native menu bar app, starts at login
 
 A monochrome waveform icon shows status by color (Adobe-style): plain when idle, a **yellow** dot when an agent is waiting for you, **red + slash** when muted.
 
-- **Left-click** → menu: blue sliders for **volume**, the VOICEVOX **prosody** (速さ/高さ/抑揚), **ツンデレ** and **アドレナリン** (slider-only — **center = off**), the **voice list** (system + VOICEVOX), and a **per-pane submenu** for every terminal where you override **all** of these individually (spoken name, voice, volume, ツンデレ, アドレナリン, prosody).
+- **Left-click** → menu: blue sliders for **volume**, the VOICEVOX **prosody** (速さ/高さ/抑揚), **ツンデレ** (center = off) and **アドレナリン** (left/min = off → 危機), the **voice list** (system + VOICEVOX), and a **per-pane submenu** for every terminal where you override **all** of these individually (spoken name, voice, volume, ツンデレ, アドレナリン, prosody).
 - **Right-click** → instant mute toggle.
 - **⚙ 設定…** → a settings window with **aligned sliders + editable numeric fields** and **saveable presets** (`ai-notify preset save <name>` / `load` / `delete`), so you don't re-tune every time.
 
@@ -220,14 +220,14 @@ It's **deterministic and offline** — phrase banks, no API, no cost. The urgenc
 A separate read-out skin: a **military ops room**. The level sets the situation, and — combined with the tsundere level (the operator's 好感度) — picks the line:
 
 ```sh
-ai-notify war level 0.85     # the slider's CENTER (0.5) is OFF; away from center = more intense
+ai-notify war level 0.85     # 0 = off (平時, min) … rises to 危機 at 1 (a plain intensity slider)
 ai-notify war on/off         # convenience: jump to active / center(off)
 ai-notify war test
 ```
 
 - **平時** — calm radio chatter. **戦闘中** — general quarters, urgent. **危機** — short shouts, louder and faster.
 - The **tsundere level flavors every band** (a warm デレ operator vs a harsh ツン one), so war × tsundere gives 9 distinct moods.
-- Both ツンデレ and アドレナリン are **slider-only** (no on/off checkbox): the slider **center = off**. They're blue sliders in the menu bar, below 速さ/高さ/抑揚, and in the ⚙ settings window. Every per-pane submenu can override **all** of these (name, voice, volume, ツンデレ, アドレナリン, 速さ/高さ/抑揚) individually.
+- Both are **slider-only** (no on/off checkbox). **ツンデレ**: center = off, left デレ / right ツン. **アドレナリン**: a plain intensity slider — **left/min = off**, rising to 危機 at max. Blue sliders in the menu bar (below 速さ/高さ/抑揚) and in the ⚙ settings window. Every per-pane submenu can override **all** of these (name, voice, volume, ツンデレ, アドレナリン, 速さ/高さ/抑揚) individually.
 
 ## ⏳ Which window, and what it's asking
 
