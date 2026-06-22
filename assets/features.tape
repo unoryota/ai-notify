@@ -21,6 +21,6 @@ Type "ai-notify voicevox speakers | head -n 8" Sleep 300ms Enter
 Sleep 2800ms
 Type "clear" Enter
 
-Type "# optional: a tsundere persona that scales ツン⇄デレ with urgency" Sleep 400ms Enter
-Type "ai-notify tsundere test" Sleep 300ms Enter
+Type "# optional: a tsundere persona — a slider sets the tone (ツン⇔デレ), center = off" Sleep 400ms Enter
+Type "ai-notify tsundere level 0.85 && ai-notify tsundere test" Sleep 300ms Enter
 Sleep 4200ms

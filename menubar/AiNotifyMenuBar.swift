@@ -381,7 +381,7 @@ final class SettingsWindowController: NSObject {
                         onChange: { State.cli(["voice-prosody", "intonation", String(format: "%.3f", $0)]) }),
         ]
         var y = 264
-        let header = NSTextField(labelWithString: "ツンデレ=中央でOFF（左→ツン／端=極寒・右→デレ／端=デレデレ）・アドレナリン=左端=平時→右で戦争")
+        let header = NSTextField(labelWithString: "ツンデレ=中央OFF（左ツン⇔右デレ・両端で最強）　アドレナリン=左OFF→右で戦争")
         header.frame = NSRect(x: 16, y: 286, width: 440, height: 16)
         header.font = .systemFont(ofSize: 11); header.textColor = .secondaryLabelColor
         content.addSubview(header)
@@ -459,8 +459,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         var shotPath = ProcessInfo.processInfo.environment["AI_NOTIFY_SHOT"]
         let args = CommandLine.arguments
         if let i = args.firstIndex(of: "--shot"), i + 1 < args.count { shotPath = args[i + 1] }
+        var shotTarget = ProcessInfo.processInfo.environment["AI_NOTIFY_SHOT_TARGET"] ?? "menu"
+        if let i = args.firstIndex(of: "--shot-target"), i + 1 < args.count { shotTarget = args[i + 1] }
         if let shot = shotPath, !shot.isEmpty {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in self?.captureMenuShot(shot) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                if shotTarget == "settings" { self?.captureSettingsShot(shot) } else { self?.captureMenuShot(shot) }
+            }
         }
     }
 
@@ -1026,6 +1030,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let button = statusItem.button {
             menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.height + 4), in: button)
         }
+    }
+
+    // Screenshot mode for the ⚙ settings window (AI_NOTIFY_SHOT_TARGET=settings):
+    // open it, capture just its window via `screencapture`, then quit. Same headless
+    // use as captureMenuShot — only ever reached when generating README assets.
+    func captureSettingsShot(_ path: String) {
+        settings.show()
+        NSApp.activate(ignoringOtherApps: true)
+        var ticks = 0
+        let t = Timer(timeInterval: 0.25, repeats: true) { [weak self] timer in
+            ticks += 1
+            let id = self?.settings.windowNumber ?? 0
+            if id == 0 && ticks < 16 { return } // window not registered yet — keep polling
+            if id != 0 {
+                let p = Process()
+                p.launchPath = "/usr/sbin/screencapture"
+                p.arguments = ["-x", "-o", "-l", String(id), path]
+                try? p.run(); p.waitUntilExit()
+            }
+            timer.invalidate()
+            NSApp.terminate(nil)
+        }
+        RunLoop.main.add(t, forMode: .common)
     }
 
     // Add the voice list to `menu`. paneTty == nil => sets the global voice;

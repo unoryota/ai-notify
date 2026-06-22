@@ -30,8 +30,8 @@ Plenty of agents go quiet for minutes. ai-notify pulls you back at the right mom
 
 - 🎙️ **A different voice per terminal.** Give each pane its own spoken voice, so you know *which* window finished just by listening — `export AI_NOTIFY_VOICE=Eddy` (or a [VOICEVOX](#-voicevox-character-voices) character).
 - 🌐 **Read out in your language.** An agent's English reply or prompt is translated before it's spoken/shown (key-less, no cost) — great for non-English speakers.
-- 📝 **It tells you *what* was done.** The "done" notification summarizes the agent's last reply (from the transcript), not just "finished".
-- 🔕 **One switch mutes everything.** Every agent in every terminal reads the same flag — one tap silences them all for a meeting.
+- 📝 **It tells you *what* was done.** The "done" notification summarizes the agent's last reply (from the transcript) — always the **current** turn's reply, never a stale earlier one — not just "finished".
+- 🔕 **One switch mutes everything.** Every agent in every terminal reads the same flag — one tap silences them all for a meeting. Mute is **fully silent**: no sound *and* no desktop banner (a banner would make macOS play its own ping); a waiting pane still shows as a **yellow** menu bar dot.
 - 🔔 **A real menu bar bell, built in.** `ai-notify menubar install` — no Hammerspoon/SwiftBar required.
 
 A quick tour — translate an agent's reply, list VOICEVOX character voices, and the tsundere persona:
@@ -122,19 +122,15 @@ You can't type into the terminal that's running an agent, so drive everything fr
 ai-notify menubar install   # native menu bar app, starts at login
 ```
 
-A monochrome waveform icon shows status by color (Adobe-style): plain when idle, a **yellow** dot when an agent is waiting for you, **red + slash** when muted.
+A monochrome waveform icon shows status by color (Adobe-style): plain when idle, a **yellow** dot when an agent is waiting for you, **red + slash** when muted. Muting is **fully silent** — no sound and no desktop banner (a banner would make macOS play its own notification ping) — yet a waiting pane still shows via the yellow icon + a highlighted window, so you never miss it on the way back to your desk.
 
 - **Left-click** → menu: blue sliders for **volume**, the VOICEVOX **prosody** (速さ/高さ/抑揚), **ツンデレ** (center = off) and **アドレナリン** (left/min = off → 危機), the **voice list** (system + VOICEVOX), and a **per-pane submenu** for every terminal where you override **all** of these individually (spoken name, voice, volume, ツンデレ, アドレナリン, prosody).
 - **Right-click** → instant mute toggle.
 - **⚙ 設定…** → a settings window with **aligned sliders + editable numeric fields** and **saveable presets** (`ai-notify preset save <name>` / `load` / `delete`), so you don't re-tune every time.
 
-<p>
-  <img alt="ai-notify menu — blue sliders for volume, prosody, ツンデレ, アドレナリン" src="https://raw.githubusercontent.com/unoryota/ai-notify/main/assets/menubar.png" width="250">
-  &nbsp;&nbsp;
-  <img alt="per-pane list — each terminal named with its own voice" src="https://raw.githubusercontent.com/unoryota/ai-notify/main/assets/menubar-panes.png" width="250">
-</p>
+<img alt="ai-notify menu — blue sliders for volume + prosody + ツンデレ + アドレナリン, the voice list, and a per-pane row for each terminal" src="https://raw.githubusercontent.com/unoryota/ai-notify/main/assets/menubar.png" width="280">
 
-*Left: the menu's blue sliders (volume, 速さ/高さ/抑揚, ツンデレ, アドレナリン). Right: the per-pane list — each terminal named and voiced (🗣 name — 🔊 voice).*
+*The menu: blue sliders (volume, 速さ/高さ/抑揚, ツンデレ, アドレナリン), the voice list, and a per-pane row for each terminal — every pane named and voiced (🗣 name — 🔊 voice), each opening to its own overrides.*
 
 The **⚙ settings window** — every slider on one grid, an editable number beside each, and a preset bar to save/restore your setup:
 
@@ -217,11 +213,11 @@ A separate read-out skin: a **military ops room**. The level sets the situation,
 
 ```sh
 ai-notify war level 0.85     # 0 = off (平時, min) … rises to 危機 at 1 (a plain intensity slider)
-ai-notify war on/off         # convenience: jump to active / center(off)
+ai-notify war on/off         # convenience: jump to active (0.85) / off (min, 0)
 ai-notify war test
 ```
 
-- **平時** — calm radio chatter. **戦闘中** — general quarters, urgent. **危機** — short shouts, louder and faster.
+- **平時** — calm radio chatter. **戦闘中** — general quarters, urgent. **危機** — short, sharp shouts (louder + steeper intonation; the pace is tuned to stay intelligible, not a runaway 早口).
 - The **tsundere level flavors every band** (a warm デレ operator vs a harsh ツン one), so war × tsundere gives 9 distinct moods.
 - Both are **slider-only** (no on/off checkbox). **ツンデレ**: center = off, **left ツン / right デレ** (far-left = 極寒, far-right = デレデレ). **アドレナリン**: a plain intensity slider — **left/min = 平時 (off)**, rising to 戦争/危機 at max. Blue sliders in the menu bar (below 速さ/高さ/抑揚) and in the ⚙ settings window. Every per-pane submenu can override **all** of these (name, voice, volume, ツンデレ, アドレナリン, 速さ/高さ/抑揚) individually.
 

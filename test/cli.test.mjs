@@ -19,6 +19,7 @@ const run = (args, { input, env } = {}) => {
         ...process.env,
         XDG_STATE_HOME: join(sandbox, 'state'),
         XDG_CONFIG_HOME: join(sandbox, 'config'),
+        ...env,
       },
     }),
   };
@@ -61,6 +62,22 @@ test('status reflects muted state', () => {
 test('codex hook ignores non-target events and exits 0', () => {
   const r = run(['hook', '--source', 'codex', JSON.stringify({ type: 'session-start' })]);
   assert.equal(r.status, 0);
+});
+
+// Screenshot safeguard: menu-json in DEMO mode must emit ONLY the synthetic
+// fixture — never the user's real panes (whose cwd-derived labels would leak
+// private project / branch names into committed README assets).
+test('AI_NOTIFY_DEMO menu-json emits synthetic panes only', () => {
+  const r = run(['menu-json'], { env: { ...process.env, AI_NOTIFY_DEMO: '1' } });
+  assert.equal(r.status, 0);
+  const j = JSON.parse(r.stdout);
+  const labels = j.panes.map((p) => p.label).sort();
+  assert.deepEqual(labels, ['api', 'docs', 'frontend', 'release']);
+  // fixed demo values, independent of any real state
+  assert.equal(j.tsundere.level, 0.85);
+  assert.equal(j.tts, 'voicevox');
+  // none of the synthetic ttys resemble a real /dev path beyond the fixture
+  assert.ok(j.panes.every((p) => /^\/dev\/ttys01[0-9]$/.test(p.tty)));
 });
 
 test('init --dry-run writes nothing and exits 0', () => {

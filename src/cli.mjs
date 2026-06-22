@@ -899,6 +899,11 @@ const cmds = {
   // Machine-readable state for the menu bar agent: mute, volume, the selectable
   // voices, and the recently-active panes (for per-pane assignment). Not human.
   'menu-json'() {
+    // Screenshot/demo mode: NEVER read the user's live panes (cwd-derived branch
+    // names leak private project info into README assets). Emit a fixed synthetic
+    // fixture instead. Used by scripts/capture.mjs with AI_NOTIFY_DEMO=1 so every
+    // generated screenshot contains only made-up data. See docs in capture.mjs.
+    if (process.env.AI_NOTIFY_DEMO) return log(JSON.stringify(demoMenuJson()));
     const config = readConfig();
     const url = config.voicevox?.url || voicevox.DEFAULT_URL;
     const chars = voicevox.isAvailable(url) ? voicevox.listCharacters(url) : [];
@@ -1106,6 +1111,52 @@ function classifyKind(event, ntype, isSubagent) {
   if (ntype === 'permission_prompt') return 'permission';
   if (ntype === 'idle_prompt' || ntype === 'elicitation_dialog' || ntype === '') return 'input';
   return 'info'; // auth_success, elicitation_complete/response, anything else
+}
+
+// A fixed, synthetic menu-json fixture for screenshots (AI_NOTIFY_DEMO=1). Only
+// invented panes/voices/values, so generated README assets can never expose the
+// user's real projects, branch names, or pane labels. Mirrors the menu-json shape.
+function demoMenuJson() {
+  const prosody = { speed: 1.1, pitch: 0.0, intonation: 1.1 };
+  const voices = [
+    { section: 'VOICEVOX', label: 'ずんだもん', kind: 'voicevox', ref: '3', currentGlobal: true },
+    { section: 'VOICEVOX', label: '春日部つむぎ', kind: 'voicevox', ref: '8', currentGlobal: false },
+    { section: 'VOICEVOX', label: '青山龍星', kind: 'voicevox', ref: '13', currentGlobal: false },
+    { section: 'System', label: 'Kyoko', kind: 'say', ref: 'Kyoko', currentGlobal: false },
+    { section: 'System', label: 'Samantha', kind: 'say', ref: 'Samantha', currentGlobal: false },
+    { section: 'System', label: 'Daniel', kind: 'say', ref: 'Daniel', currentGlobal: false },
+  ];
+  const pane = (tty, label, speakName, current, over = {}) => ({
+    tty,
+    label,
+    current,
+    speakName,
+    volume: over.volume ?? 1,
+    volumeSet: 'volume' in over,
+    tsundere: over.tsundere ?? 0.85,
+    tsundereSet: 'tsundere' in over,
+    war: over.war ?? 0.4,
+    warSet: 'war' in over,
+    prosody,
+    prosodySet: false,
+  });
+  const panes = [
+    pane('/dev/ttys010', 'frontend', 'Mochi', 'ずんだもん', { tsundere: 0.85 }),
+    pane('/dev/ttys011', 'api', 'Tsumugi', '春日部つむぎ', { volume: 1.2 }),
+    pane('/dev/ttys012', 'docs', '', null),
+    pane('/dev/ttys013', 'release', 'Ryusei', '青山龍星', {}),
+  ];
+  return {
+    muted: false,
+    volume: 1.05,
+    voices,
+    panes,
+    tsundere: { enabled: false, level: 0.85 },
+    war: { enabled: false, level: 0.4 },
+    tts: 'voicevox',
+    prosody,
+    prosodyRange: VOICE_PROSODY_RANGE,
+  };
 }
 
 function printHelp() {
