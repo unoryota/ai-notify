@@ -740,16 +740,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // A labeled blue level slider (0–1), laid out like the 速さ/高さ/抑揚 rows so
     // ツンデレ / 心理的安全性 sit with them, aligned and in the same blue.
-    private func levelRow(label: String, value: Double, action: Selector) -> NSMenuItem {
-        let row = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
+    private func levelRow(label: String, value: Double, enabled: Bool = true, action: Selector) -> NSMenuItem {
+        let row = NSView(frame: NSRect(x: 0, y: 0, width: 270, height: 24))
+        // Indented sub-label under its toggle. Wide enough for the full text
+        // ("スパルタ⇔ホワイト") and dimmed further when the toggle is OFF.
         let cap = NSTextField(labelWithString: label)
-        cap.frame = NSRect(x: 12, y: 4, width: 64, height: 16)
-        cap.font = .systemFont(ofSize: 11); cap.textColor = .secondaryLabelColor
+        cap.frame = NSRect(x: 26, y: 4, width: 104, height: 16)
+        cap.font = .systemFont(ofSize: 10)
+        cap.textColor = enabled ? .secondaryLabelColor : .tertiaryLabelColor
+        cap.lineBreakMode = .byClipping
         // Plain NSSlider (same as the 速さ/高さ/抑揚 rows, which track + render blue
-        // correctly). A custom-cell slider was dropping the dragged value.
+        // correctly). isEnabled=false greys it out so an OFF toggle reads as off.
         let slider = NSSlider(value: value, minValue: 0, maxValue: 1, target: self, action: action)
-        slider.frame = NSRect(x: 78, y: 3, width: 146, height: 20)
+        slider.frame = NSRect(x: 132, y: 3, width: 126, height: 20)
         slider.isContinuous = false
+        slider.isEnabled = enabled
         row.addSubview(cap); row.addSubview(slider)
         let item = NSMenuItem(); item.view = row
         return item
@@ -819,9 +824,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // ツンデレ slider is reversed (left=ツン, right=デレ) so the knob sits at 1 - level.
         // 心理的安全性 slider is direct (left=スパルタ/0, right=ホワイト/1, center=off).
         menu.addItem(toggleSwitchRow("ツンデレ", on: tsunOn, action: #selector(tsundereToggled(_:))))
-        menu.addItem(levelRow(label: "　└ ツン/デレ", value: 1 - tsunLevel, action: #selector(tsundereLevelDirect(_:))))
+        menu.addItem(levelRow(label: "ツン⇔デレ", value: 1 - tsunLevel, enabled: tsunOn, action: #selector(tsundereLevelDirect(_:))))
         menu.addItem(toggleSwitchRow("心理的安全性", on: warOn, action: #selector(warToggled(_:))))
-        menu.addItem(levelRow(label: "　└ ｽﾊﾟﾙﾀ/ﾎﾜｲﾄ", value: warLevel, action: #selector(warLevelChanged(_:))))
+        menu.addItem(levelRow(label: "スパルタ⇔ホワイト", value: warLevel, enabled: warOn, action: #selector(warLevelChanged(_:))))
         menu.addItem(.separator())
 
         if voices.isEmpty {

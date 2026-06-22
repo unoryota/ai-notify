@@ -1159,8 +1159,8 @@ function demoMenuJson() {
     volume: 1.05,
     voices,
     panes,
-    tsundere: { enabled: true, level: 0.85 },
-    war: { enabled: true, level: 0.78 },
+    tsundere: { enabled: true, level: 0.85 }, // ON → slider active
+    war: { enabled: false, level: 0.78 }, // OFF → slider shows disabled/greyed
     tts: 'voicevox',
     prosody,
     prosodyRange: VOICE_PROSODY_RANGE,
