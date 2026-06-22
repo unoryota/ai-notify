@@ -53,12 +53,10 @@ export const volumeMul = (tier, volumeBoost = true) => (volumeBoost ? VOLMUL[tie
 // tone and the VOICEVOX style pick.
 export const axisFor = (eff) => (eff >= 0.6 ? 'tsun' : eff <= 0.4 ? 'dere' : 'normal');
 
-// Phrase tone is finer than the VOICEVOX style: at the far ツン end (デレ 0) the
-// lines should be genuinely COLD — no hidden tsundere warmth — so ≥ 0.8 picks the
-// `cold` bank, ≥ 0.6 the (softer, classic) `tsun`, etc. The VOICEVOX style still
-// uses axisFor (cold reads through the ツンツン voice).
-export const phraseTone = (level) =>
-  level >= 0.8 ? 'cold' : level >= 0.6 ? 'tsun' : level <= 0.4 ? 'dere' : 'normal';
+// The tsundere slider is MONOTONIC: left/0 = off, and it gets harsher to the
+// right — mild (normal) → classic ツン → genuinely COLD (デレ0) at the far end.
+// No デレ side. The VOICEVOX style is ツンツン above the mild zone.
+export const phraseTone = (level) => (level >= 0.7 ? 'cold' : level >= 0.35 ? 'tsun' : 'normal');
 
 // --- Phrase banks ----------------------------------------------------------
 // BANK[lang][tone] = { <tier>: [...], default: [...] }. `{body}` is the task

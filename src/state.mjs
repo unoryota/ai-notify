@@ -400,7 +400,7 @@ export const DEFAULT_CONFIG = {
   // (cached in `styleMap`). No API, no cost — deterministic phrase banks.
   tsundere: {
     enabled: false,
-    level: 0.5,
+    level: 0, // 0 = off (left); rises to MAX (cold) on the right
     urgencyShift: true, // modulate the level by the event's urgency
     volumeBoost: true, // louder on high-urgency events
     lang: 'ja', // phrase bank language (ja | en)

@@ -253,21 +253,22 @@ export const emit = ({ provider = 'default', event = 'done', label = '', message
     if (typeof pane.tsundere === 'number') return pane.tsundere;
     const f = readTsundereLevel();
     if (f != null) return f;
-    return typeof ts.level === 'number' ? ts.level : 0.5;
+    return typeof ts.level === 'number' ? ts.level : 0; // 0 = off (left)
   })();
-  // アドレナリン is a MONOTONIC intensity slider: left/min (0) = off (平時), and
-  // it rises toward 危機 at max. (Tsundere stays bidirectional: center = off.)
+  // Both sliders are MONOTONIC: left/0 = OFF, rising to MAX on the right.
+  //   ツンデレ    : 0 off → mild → ツン → 極寒(cold, デレ0) at the far right
+  //   アドレナリン: 0 off (平時) → 危機 at the far right
+  // The harsher the slider, the colder the line; urgency only sets VOLUME and
+  // WHICH line is picked, never the persona itself.
   const warSlider = typeof pane.war === 'number' ? pane.war : readWarLevel();
-  const tsundereActive = Math.abs(tsLevel - 0.5) > 0.04;
+  const tsundereActive = tsLevel > 0.04;
+  // VOICEVOX style: ツンツン once past the mild zone, else ノーマル.
+  const tsStyle = tsLevel >= 0.35 ? 'tsun' : 'normal';
 
-  // The TONE (デレ / 普通 / ツン) follows the SLIDER directly — right = always ツン,
-  // left = always デレ — so it never contradicts where you set it. Urgency only
-  // affects the VOLUME and WHICH line is picked (a success at ツン = a reluctant
-  // tsundere "good job", not a gushing デレ one), never the ツン⇄デレ tone itself.
   if (warSlider > 0.04) {
     warActive = true;
     warIntensity = Math.min(1, warSlider);
-    speakTone = tsundere.axisFor(tsLevel);
+    speakTone = tsStyle;
     outVol = Math.min(2, Math.max(0, vol * war.volumeMul(warIntensity, tier)));
     outText = war.wrap(spokenBody, warIntensity, tsLevel, ts.lang || 'ja', nextCounter('war'));
     if (spokenName) outText = joinName(spokenName, outText);
@@ -276,7 +277,7 @@ export const emit = ({ provider = 'default', event = 'done', label = '', message
       if (sm && sm[speakTone] != null) outSpeaker = sm[speakTone];
     }
   } else if (tsundereActive) {
-    speakTone = tsundere.axisFor(tsLevel);
+    speakTone = tsStyle;
     outVol = Math.min(2, Math.max(0, vol * tsundere.volumeMul(tier, ts.volumeBoost !== false)));
     outText = tsundere.wrap(spokenBody, tsLevel, tier, ts.lang || 'ja', nextCounter('tsundere'));
     if (spokenName) outText = joinName(spokenName, outText);

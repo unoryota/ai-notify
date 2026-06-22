@@ -384,12 +384,12 @@ const cmds = {
       }
     };
 
-    // Slider-only now (center 0.5 = off). on/off/toggle just move the level.
+    // Monotonic slider (0 = off, MAX = cold). on/off/toggle just move the level.
     if (sub === 'on' || sub === 'off' || sub === 'toggle') {
-      const cur = readTsundereLevel() != null ? readTsundereLevel() : ts.level ?? 0.5;
-      const active = Math.abs(cur - 0.5) > 0.04;
+      const cur = readTsundereLevel() != null ? readTsundereLevel() : ts.level ?? 0;
+      const active = cur > 0.04;
       const want = sub === 'toggle' ? !active : sub === 'on';
-      const next = want ? (active ? cur : 0.85) : 0.5;
+      const next = want ? (active ? cur : 0.85) : 0;
       setTsundereLevel(next);
       if (want && config.tts === 'voicevox') {
         const sm = voicevox.resolveStyles(config.voicevox?.speaker, url);
@@ -398,7 +398,7 @@ const cmds = {
           writeConfig(config);
         }
       }
-      log(want ? `💢 ツンデレ ON（level ${next}・中央0.5でOFF）` : 'ツンデレ OFF（中央 0.5）');
+      log(want ? `💢 ツンデレ ON（level ${next}・左端0でOFF）` : 'ツンデレ OFF（最小 0）');
       return;
     }
     if (sub === 'level') {
@@ -441,10 +441,10 @@ const cmds = {
       return;
     }
     // status
-    const lvl = readTsundereLevel() != null ? readTsundereLevel() : ts.level ?? 0.5;
-    const active = Math.abs(lvl - 0.5) > 0.04;
-    log(`ツンデレ: ${active ? `💢 ON (${tsundere.axisFor(lvl)})` : 'OFF（中央 0.5）'}`);
-    log(`  level:        ${lvl}  (0=デレ・0.5=OFF・1=ツン)`);
+    const lvl = readTsundereLevel() != null ? readTsundereLevel() : ts.level ?? 0;
+    const active = lvl > 0.04;
+    log(`ツンデレ: ${active ? `💢 ON (${tsundere.phraseTone(lvl)})` : 'OFF（最小 0）'}`);
+    log(`  level:        ${lvl}  (0=OFF … 0.35〜=ツン … 0.7〜=極寒)`);
     log(`  urgencyShift: ${ts.urgencyShift !== false ? 'on' : 'off'}  (緊急度で口調を増減)`);
     log(`  volumeBoost:  ${ts.volumeBoost !== false ? 'on' : 'off'}  (重大時は音量↑)`);
     log(`  lang:         ${ts.lang || 'ja'}`);
@@ -482,7 +482,7 @@ const cmds = {
         prosody: readVoiceProsody(),
         tsundere: {
           enabled: !!config.tsundere?.enabled,
-          level: readTsundereLevel() != null ? readTsundereLevel() : config.tsundere?.level ?? 0.5,
+          level: readTsundereLevel() != null ? readTsundereLevel() : config.tsundere?.level ?? 0,
         },
         war: { enabled: isWarEnabled(), level: readWarLevel() },
       };
@@ -956,7 +956,7 @@ const cmds = {
     // Panes = live terminals currently running an agent (so they show up before
     // they ever fire a notification) merged with previously-recorded ones.
     const globalVol = readVolume() != null ? readVolume() : typeof config.volume === 'number' ? config.volume : 1;
-    const tsLevel = readTsundereLevel() != null ? readTsundereLevel() : config.tsundere?.level ?? 0.5;
+    const tsLevel = readTsundereLevel() != null ? readTsundereLevel() : config.tsundere?.level ?? 0;
     const warGlobal = readWarLevel();
     const prosGlobal = readVoiceProsody();
     const recorded = new Map(readPanes().map((p) => [p.tty, p.label]));
