@@ -9,3 +9,7 @@ config.json
 
 # built menu bar app (prebuilt+signed only at release time)
 menubar/dist/
+
+# local promo / scratch video assets (never published; not in npm "files")
+assets/x-promo*.mp4
+assets/promo-build/
