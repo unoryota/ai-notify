@@ -368,8 +368,9 @@ final class SettingsWindowController: NSObject {
         let rows: [SettingsRow] = [
             SettingsRow(title: "音量", asCheckbox: false, on: false, lo: 0, hi: 2, value: (j["volume"] as? Double) ?? 1, fill: blue,
                         onChange: { State.cli(["volume", String(format: "%.2f", $0)]) }),
-            SettingsRow(title: "ツンデレ", asCheckbox: false, on: false, lo: 0, hi: 1, value: (tsun?["level"] as? Double) ?? 0.5, fill: blue,
-                        onChange: { State.cli(["tsundere", "level", String(format: "%.2f", $0)]) }),
+            // Reversed: field/knob left(0)=ツン … right(1)=デレ, while the file keeps 0=デレ…1=ツン.
+            SettingsRow(title: "ツンデレ", asCheckbox: false, on: false, lo: 0, hi: 1, value: 1 - ((tsun?["level"] as? Double) ?? 0.5), fill: blue,
+                        onChange: { State.cli(["tsundere", "level", String(format: "%.2f", 1 - $0)]) }),
             SettingsRow(title: "アドレナリン", asCheckbox: false, on: false, lo: 0, hi: 1, value: (warj?["level"] as? Double) ?? 0.5, fill: blue,
                         onChange: { State.cli(["war", "level", String(format: "%.2f", $0)]) }),
             SettingsRow(title: "速さ", asCheckbox: false, on: false, lo: slo, hi: shi, value: (pr["speed"] as? Double) ?? 1, fill: blue,
@@ -380,7 +381,7 @@ final class SettingsWindowController: NSObject {
                         onChange: { State.cli(["voice-prosody", "intonation", String(format: "%.3f", $0)]) }),
         ]
         var y = 264
-        let header = NSTextField(labelWithString: "ツンデレ=中央0.5でOFF（左→デレ／端=デレデレ・右→ツン／端=極寒）・アドレナリン=左端0でOFF→右で危機")
+        let header = NSTextField(labelWithString: "ツンデレ=中央でOFF（左→ツン／端=極寒・右→デレ／端=デレデレ）・アドレナリン=左端=平時→右で戦争")
         header.frame = NSRect(x: 16, y: 286, width: 440, height: 16)
         header.font = .systemFont(ofSize: 11); header.textColor = .secondaryLabelColor
         content.addSubview(header)
@@ -586,12 +587,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func openSettings() { settings.show() }
 
     @objc private func volumeChanged(_ s: NSSlider) { State.setVolume(s.doubleValue) }
-    // Direct, bipolar scale: left = デレ (0, far-left = デレデレ), center = off (0.5),
-    // right = ツン (1, far-right = 極寒). Slider position IS the stored value.
-    @objc private func tsundereLevelChanged(_ s: NSSlider) { State.setTsundereLevel(s.doubleValue) }
+    // The slider is shown REVERSED: left = ツン (far-left = 極寒), center = off, right =
+    // デレ (far-right = デレデレ). The file keeps the canonical scale (0 = デレ … 1 = ツン),
+    // so the knob sits at 1 - value and we write back 1 - position.
+    @objc private func tsundereLevelChanged(_ s: NSSlider) { State.setTsundereLevel(1 - s.doubleValue) }
     @objc private func tsundereToggled(_ b: NSButton) { State.cli(["tsundere", "toggle"]) }
     @objc private func paneTsundereChanged(_ s: NSSlider) {
-        if let tty = s.identifier?.rawValue { State.cli(["tsundere-pane", tty, String(format: "%.2f", s.doubleValue)]) }
+        if let tty = s.identifier?.rawValue { State.cli(["tsundere-pane", tty, String(format: "%.2f", 1 - s.doubleValue)]) }
     }
     @objc private func paneVolumeChanged(_ s: NSSlider) {
         if let tty = s.identifier?.rawValue { State.cli(["volume-pane", tty, String(format: "%.2f", s.doubleValue)]) }
@@ -692,22 +694,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return item
     }
 
-    // A デレ ⇄ ツン slider for the tsundere baseline level. Direct (left = デレ, far-
-    // left = デレデレ; center = off; right = ツン, far-right = 極寒) — the knob sits at
-    // the stored value and writes the position straight back. Continuous (global).
+    // A ツン ⇄ デレ slider for the tsundere baseline level. Shown REVERSED (left = ツン,
+    // far-left = 極寒; center = off; right = デレ, far-right = デレデレ) while the file
+    // keeps 0 = デレ, 1 = ツン — so the knob sits at 1 - value and writes back 1 - pos.
     private func tsundereRow(value: Double, identifier: String? = nil) -> NSMenuItem {
         let row = NSView(frame: NSRect(x: 0, y: 0, width: 220, height: 26))
-        let left = NSTextField(labelWithString: "デレ")
+        let left = NSTextField(labelWithString: "ツン")
         left.frame = NSRect(x: 12, y: 5, width: 30, height: 16)
         left.font = .systemFont(ofSize: 10); left.textColor = .secondaryLabelColor
         // identifier == nil => global (live, writes the level file); a pane tty =>
         // per-pane override applied on release (one subprocess per drag avoided).
         let action: Selector = identifier == nil ? #selector(tsundereLevelChanged(_:)) : #selector(paneTsundereChanged(_:))
-        let slider = NSSlider(value: value, minValue: 0, maxValue: 1, target: self, action: action)
+        let slider = NSSlider(value: 1 - value, minValue: 0, maxValue: 1, target: self, action: action)
         slider.frame = NSRect(x: 46, y: 3, width: 128, height: 20)
         slider.isContinuous = (identifier == nil)
         if let id = identifier { slider.identifier = NSUserInterfaceItemIdentifier(id) }
-        let right = NSTextField(labelWithString: "ツン")
+        let right = NSTextField(labelWithString: "デレ")
         right.frame = NSRect(x: 178, y: 5, width: 30, height: 16)
         right.font = .systemFont(ofSize: 10); right.textColor = .secondaryLabelColor
         row.addSubview(left); row.addSubview(slider); row.addSubview(right)
@@ -760,7 +762,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func warToggled(_ b: NSButton) { State.cli(["war", "toggle"]) }
     @objc private func warLevelChanged(_ s: NSSlider) { State.cli(["war", "level", String(format: "%.2f", s.doubleValue)]) }
-    @objc private func tsundereLevelDirect(_ s: NSSlider) { State.cli(["tsundere", "level", String(format: "%.2f", s.doubleValue)]) }
+    // Reversed like the other tsundere sliders: left = ツン, right = デレ → write 1 - pos.
+    @objc private func tsundereLevelDirect(_ s: NSSlider) { State.cli(["tsundere", "level", String(format: "%.2f", 1 - s.doubleValue)]) }
 
     // representedObject is the full CLI arg array to run.
     @objc private func runItem(_ item: NSMenuItem) {
@@ -816,7 +819,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         // ツンデレ (好感度) and アドレナリン (強度) levels, below 速さ/高さ/抑揚, in blue.
-        menu.addItem(levelRow(label: "ツンデレ", value: tsunLevel, action: #selector(tsundereLevelDirect(_:))))
+        // ツンデレ slider is reversed (left=ツン, right=デレ) so the knob sits at 1 - level.
+        menu.addItem(levelRow(label: "ツンデレ", value: 1 - tsunLevel, action: #selector(tsundereLevelDirect(_:))))
         menu.addItem(levelRow(label: "アドレナリン", value: warLevel, action: #selector(warLevelChanged(_:))))
         menu.addItem(.separator())
 

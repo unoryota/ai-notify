@@ -202,10 +202,10 @@ Key-less and no cost (one HTTP request; falls back to a localized template offli
 
 ## 💢 Tsundere mode (optional, fun)
 
-Give the spoken read-out a tsundere persona. The slider is **bipolar with OFF in the center (0.5)**: slide **left for デレ** (warm — the far-left end gushes **デレデレ**), **right for ツン** (harsh — the far-right end is a genuinely **cold** デレ0, "…and? so what?"). Five graded steps: デレデレ ← デレ ← (off) → ツン → 極寒.
+Give the spoken read-out a tsundere persona. The slider is **bipolar with OFF in the center (0.5)**: slide **left for ツン** (harsh — the far-left end is a genuinely **cold** デレ0, "…and? so what?"), **right for デレ** (warm — the far-right end gushes **デレデレ**). Five graded steps: 極寒 ← ツン ← (off) → デレ → デレデレ.
 
 ```sh
-ai-notify tsundere level 0.7     # 0 = デレ … 0.5 = off … 1 = ツン; the menu bar has a slider
+ai-notify tsundere level 0.7     # CLI scale 0 = デレ … 0.5 = off … 1 = ツン (the menu slider is reversed: left ツン / right デレ)
 ai-notify tsundere test          # hear it across event types
 ```
 
@@ -223,7 +223,7 @@ ai-notify war test
 
 - **平時** — calm radio chatter. **戦闘中** — general quarters, urgent. **危機** — short shouts, louder and faster.
 - The **tsundere level flavors every band** (a warm デレ operator vs a harsh ツン one), so war × tsundere gives 9 distinct moods.
-- Both are **slider-only** (no on/off checkbox). **ツンデレ**: center = off, left デレ / right ツン. **アドレナリン**: a plain intensity slider — **left/min = off**, rising to 危機 at max. Blue sliders in the menu bar (below 速さ/高さ/抑揚) and in the ⚙ settings window. Every per-pane submenu can override **all** of these (name, voice, volume, ツンデレ, アドレナリン, 速さ/高さ/抑揚) individually.
+- Both are **slider-only** (no on/off checkbox). **ツンデレ**: center = off, **left ツン / right デレ** (far-left = 極寒, far-right = デレデレ). **アドレナリン**: a plain intensity slider — **left/min = 平時 (off)**, rising to 戦争/危機 at max. Blue sliders in the menu bar (below 速さ/高さ/抑揚) and in the ⚙ settings window. Every per-pane submenu can override **all** of these (name, voice, volume, ツンデレ, アドレナリン, 速さ/高さ/抑揚) individually.
 
 ## ⏳ Which window, and what it's asking
 
