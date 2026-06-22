@@ -13,35 +13,6 @@
 
 import Cocoa
 
-// NSSlider.trackFillColor is unreliable for blue: AppKit matches the resolved fill
-// to the system accent and routes it through the accent path, which desaturates to
-// gray while the control isn't the key view (a menu slider never is). A non-accent
-// color like the ツンデレ pink is exempt, which is why only the blue volume slider
-// went gray. Drawing the bar ourselves sidesteps the accent path completely.
-final class FilledSliderCell: NSSliderCell {
-    var fillColor: NSColor = NSColor(srgbRed: 0, green: 122.0 / 255.0, blue: 1, alpha: 1)
-
-    override func drawBar(inside rect: NSRect, flipped: Bool) {
-        let h: CGFloat = 4
-        var bar = rect
-        bar.origin.y += (bar.height - h) / 2
-        bar.size.height = h
-        let radius = h / 2
-
-        NSColor.tertiaryLabelColor.setFill()
-        NSBezierPath(roundedRect: bar, xRadius: radius, yRadius: radius).fill()
-
-        let span = maxValue - minValue
-        guard span > 0 else { return }
-        let frac = CGFloat((doubleValue - minValue) / span)
-        guard frac > 0 else { return }
-        var fill = bar
-        fill.size.width = min(bar.width, max(h, bar.width * frac))
-        fillColor.setFill()
-        NSBezierPath(roundedRect: fill, xRadius: radius, yRadius: radius).fill()
-    }
-}
-
 enum State {
     static func dir() -> String {
         let env = ProcessInfo.processInfo.environment
@@ -306,8 +277,7 @@ final class SettingsRow: NSObject {
         }
         // Unified grid: slider always at the same x/width, field always after it.
         slider.frame = NSRect(x: 128, y: 5, width: 250, height: 20)
-        let cell = FilledSliderCell(); cell.fillColor = fill // guaranteed blue, even unfocused
-        slider.cell = cell
+        slider.trackFillColor = fill // blue (a settings window is key, so it stays colored)
         slider.minValue = lo; slider.maxValue = hi; slider.doubleValue = value
         slider.target = self; slider.action = #selector(sliderMoved)
         slider.isContinuous = true
@@ -638,10 +608,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // A blue per-pane slider carrying its target id in `identifier`.
     private func paneLevelRow(value: Double, lo: Double, hi: Double, action: Selector, id: String) -> NSMenuItem {
         let row = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
-        let slider = NSSlider(frame: NSRect(x: 12, y: 3, width: 212, height: 20))
-        slider.cell = FilledSliderCell()
-        slider.minValue = lo; slider.maxValue = hi; slider.doubleValue = value
-        slider.target = self; slider.action = action
+        let slider = NSSlider(value: value, minValue: lo, maxValue: hi, target: self, action: action)
+        slider.frame = NSRect(x: 12, y: 3, width: 212, height: 20)
         slider.isContinuous = false
         slider.identifier = NSUserInterfaceItemIdentifier(id)
         row.addSubview(slider)
@@ -715,10 +683,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func sliderRow(value: Double, action: Selector, identifier: String?) -> NSMenuItem {
         let row = NSView(frame: NSRect(x: 0, y: 0, width: 220, height: 26))
         let icon = NSTextField(labelWithString: "🔊"); icon.frame = NSRect(x: 12, y: 4, width: 20, height: 18)
-        let slider = NSSlider(frame: NSRect(x: 36, y: 3, width: 170, height: 20))
-        slider.cell = FilledSliderCell() // self-drawn blue fill; see FilledSliderCell
-        slider.minValue = 0; slider.maxValue = 2; slider.doubleValue = value
-        slider.target = self; slider.action = action
+        let slider = NSSlider(value: value, minValue: 0, maxValue: 2, target: self, action: action)
+        slider.frame = NSRect(x: 36, y: 3, width: 170, height: 20)
         slider.isContinuous = (identifier == nil)
         if let id = identifier { slider.identifier = NSUserInterfaceItemIdentifier(id) }
         row.addSubview(icon); row.addSubview(slider)
@@ -783,10 +749,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let cap = NSTextField(labelWithString: label)
         cap.frame = NSRect(x: 12, y: 4, width: 64, height: 16)
         cap.font = .systemFont(ofSize: 11); cap.textColor = .secondaryLabelColor
-        let slider = NSSlider(frame: NSRect(x: 78, y: 3, width: 146, height: 20))
-        slider.cell = FilledSliderCell() // guaranteed blue fill
-        slider.minValue = 0; slider.maxValue = 1; slider.doubleValue = value
-        slider.target = self; slider.action = action
+        // Plain NSSlider (same as the 速さ/高さ/抑揚 rows, which track + render blue
+        // correctly). A custom-cell slider was dropping the dragged value.
+        let slider = NSSlider(value: value, minValue: 0, maxValue: 1, target: self, action: action)
+        slider.frame = NSRect(x: 78, y: 3, width: 146, height: 20)
         slider.isContinuous = false
         row.addSubview(cap); row.addSubview(slider)
         let item = NSMenuItem(); item.view = row
