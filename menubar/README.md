@@ -3,16 +3,20 @@
 A tiny native menu bar bell so the mute switch has a **live 🔔 / 🔕 you can
 click** — with **no third-party app** (no Hammerspoon, SwiftBar, Raycast).
 
-- `AiNotifyMenuBar.swift` — the whole agent (~120 lines, AppKit `NSStatusItem`).
+- `AiNotifyMenuBar.swift` — the whole agent (single-file AppKit `NSStatusItem`).
 - `build.sh` — compiles it into `dist/ai-notify.app` with the system `swiftc`.
   No Xcode project, no dependencies.
 
-It reads and writes the **same mute flag** the CLI uses
-(`${XDG_STATE_HOME:-~/.local/state}/ai-notify/muted`), so the icon, the CLI, and
-every wired agent always agree — no daemon, no IPC.
+It reads and writes the **same state files** the CLI uses (under
+`${XDG_STATE_HOME:-~/.local/state}/ai-notify/`), so the icon, the CLI, and every
+wired agent always agree — no daemon, no IPC. The menu's data comes from
+`ai-notify menu-json`.
 
-- **Left click** — toggle mute / un-mute (one tap)
-- **Right click** — menu (toggle / quit)
+- **Left click** — open the **menu**: volume, VOICEVOX prosody (速さ/高さ/抑揚), the
+  **ツンデレ** and **心理的安全性** toggle switches + gradient sliders, the voice list,
+  a **per-pane submenu** for every terminal, the 応答待ち popup + 通知する種類
+  toggles, and **⚙ 設定** (sliders + numeric fields + presets).
+- **Right click** — toggle mute / un-mute (one tap).
 
 ## Use it
 
