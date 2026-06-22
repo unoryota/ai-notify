@@ -301,7 +301,13 @@ export const emit = ({ provider = 'default', event = 'done', label = '', message
     }
   }
 
-  if (alert && (!muted || config.bannerWhenMuted)) {
+  // MUTE MEANS SILENT. We post a desktop banner only when NOT muted — macOS plays
+  // its own notification ping for any banner we post (the sound is the user's
+  // Notification Center setting, which we can't suppress per-notification), so a
+  // banner-while-muted would leak a "通知音" even though the spoken read-out is off.
+  // While muted the silent cues still show which pane waits: the menu bar turns
+  // yellow and the waiting window gets highlighted (both below, ungated by sound).
+  if (alert && !muted) {
     const waiting = event === 'waiting';
     banner(
       waiting ? `⏳ ${label || 'input'}` : `✓ ${label || 'done'}`,

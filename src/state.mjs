@@ -349,9 +349,11 @@ export const updatePaneSetting = (tty, patch) => {
 // Sounds default to OS built-ins so we ship no audio assets (clean repo, no
 // licensing). Users can override any of this in config.json.
 export const DEFAULT_CONFIG = {
-  // Keep the desktop banner even while muted, so you still notice when you
-  // come back to your desk during a meeting.
-  bannerWhenMuted: true,
+  // Deprecated / no longer honored: mute now means fully silent, so we never post
+  // a desktop banner while muted (macOS would play its own notification ping for
+  // it). The silent cues — yellow menu bar icon + waiting-window highlight — still
+  // show which pane needs you. Kept here only so old configs don't read undefined.
+  bannerWhenMuted: false,
   // Spoken read-out of which terminal finished (helps tell tabs apart).
   speak: true,
   // Output volume 0.0–2.0 (1.0 = normal). The menu bar slider / `ai-notify

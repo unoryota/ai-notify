@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, existsSync } from 'node:fs';
+import { mkdtempSync, existsSync, mkdirSync, writeFileSync, readFileSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -71,4 +71,55 @@ test('init --dry-run writes nothing and exits 0', () => {
 test('unknown command exits non-zero', () => {
   const r = run(['definitely-not-a-command']);
   assert.notEqual(r.status, 0);
+});
+
+// Mute must be FULLY silent: no audio AND no desktop banner (macOS plays its own
+// notification ping for any banner we post, so a banner-while-muted leaks sound).
+// Shadow every external audio/banner binary with a logging stub and run the real
+// hook; while muted the log must stay empty.
+const runHookWithStubs = ({ muted }) => {
+  const sandbox = mkdtempSync(join(tmpdir(), 'ai-notify-'));
+  const stateDir = join(sandbox, 'state', 'ai-notify');
+  mkdirSync(stateDir, { recursive: true });
+  if (muted) writeFileSync(join(stateDir, 'muted'), '');
+
+  const binDir = join(sandbox, 'bin');
+  mkdirSync(binDir, { recursive: true });
+  const log = join(sandbox, 'calls.log');
+  for (const b of ['afplay', 'say', 'osascript', 'terminal-notifier', 'aplay', 'paplay', 'notify-send']) {
+    const f = join(binDir, b);
+    writeFileSync(f, `#!/bin/sh\necho "${b} $*" >> "${log}"\n`);
+    chmodSync(f, 0o755);
+  }
+
+  const transcript = join(sandbox, 'transcript.jsonl');
+  writeFileSync(
+    transcript,
+    [
+      JSON.stringify({ type: 'user', message: { content: 'do the thing' } }),
+      JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'did the thing' }] } }),
+    ].join('\n')
+  );
+
+  spawnSync(process.execPath, [CLI, 'hook', '--event', 'done', '--source', 'claude'], {
+    input: JSON.stringify({ transcript_path: transcript, cwd: sandbox }),
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      PATH: `${binDir}:${process.env.PATH}`,
+      XDG_STATE_HOME: join(sandbox, 'state'),
+      XDG_CONFIG_HOME: join(sandbox, 'config'),
+    },
+  });
+  return existsSync(log) ? readFileSync(log, 'utf8').trim() : '';
+};
+
+test('muted hook makes NO sound and posts NO banner', () => {
+  const calls = runHookWithStubs({ muted: true });
+  assert.equal(calls, '', `muted hook should be fully silent, but ran: ${calls}`);
+});
+
+test('un-muted hook does notify (sound and/or banner)', { skip: process.platform !== 'darwin' }, () => {
+  const calls = runHookWithStubs({ muted: false });
+  assert.notEqual(calls, '', 'un-muted hook should produce a notification');
 });
