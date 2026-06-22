@@ -306,9 +306,11 @@ final class SettingsRow: NSObject {
         }
         // Unified grid: slider always at the same x/width, field always after it.
         slider.frame = NSRect(x: 128, y: 5, width: 250, height: 20)
+        let cell = FilledSliderCell(); cell.fillColor = fill // guaranteed blue, even unfocused
+        slider.cell = cell
+        slider.minValue = lo; slider.maxValue = hi; slider.doubleValue = value
         slider.target = self; slider.action = #selector(sliderMoved)
         slider.isContinuous = true
-        slider.trackFillColor = fill
         view.addSubview(slider)
 
         field.frame = NSRect(x: 392, y: 5, width: 56, height: 20)

@@ -52,12 +52,16 @@ Adding another agent (aider, opencode, amp, …) is a small PR: drop a file in `
 
 ```sh
 ai-notify init [--dry-run] [--only claude,codex]   # wire detected agents
-ai-notify use <name> [voice] [vol]                 # set THIS pane's name + voice + tab title, in one go
+ai-notify use <name> [voice] [vol] [--tab <t>]     # set THIS pane's name + voice + tab title, at once
 ai-notify toggle | on | off | status               # the mute switch
 ai-notify volume [0.0-2.0]                          # get/set output volume
 ai-notify voice [number|name|preview|default]      # pick the spoken voice
 ai-notify voicevox [on <id>|off|speakers|test]     # speak in VOICEVOX voices
-ai-notify tsundere [on|off|level <0-1>|test]       # tsundere persona (ツン⇄デレ by urgency)
+ai-notify tsundere [level <0-1>|test|status]       # tsundere persona (slider; center 0.5 = off)
+ai-notify war [level <0-1>|test|status]            # アドレナリン / war mode (slider; center 0.5 = off)
+ai-notify notify [<kind> on|off]                   # which events alert (input|permission|done|…)
+ai-notify popup [on|off|image|delay|ignore|portraits]  # "waiting" character popup (macOS)
+ai-notify preset [list|save|load|delete <name>]    # save / restore your settings
 ai-notify translate [on <lang>|off|test]           # speak agent text in your language
 ai-notify menubar [install|uninstall|status]       # native menu bar app (macOS)
 ai-notify doctor                                   # check deps & wiring
@@ -120,17 +124,21 @@ ai-notify menubar install   # native menu bar app, starts at login
 
 A monochrome waveform icon shows status by color (Adobe-style): plain when idle, a **yellow** dot when an agent is waiting for you, **red + slash** when muted.
 
-- **Left-click** → menu: a **volume slider**, a **tsundere** toggle + デレ⇄ツン slider, the **voice list** (system + VOICEVOX), and **per-pane** controls. Each open terminal gets its own **spoken name** (read out so you know *which* pane finished), **voice**, and **volume** — the row shows each pane's voice at a glance.
+- **Left-click** → menu: blue sliders for **volume**, the VOICEVOX **prosody** (速さ/高さ/抑揚), **ツンデレ** and **アドレナリン** (slider-only — **center = off**), the **voice list** (system + VOICEVOX), and a **per-pane submenu** for every terminal where you override **all** of these individually (spoken name, voice, volume, ツンデレ, アドレナリン, prosody).
 - **Right-click** → instant mute toggle.
-- **⚙ 設定…** → a settings window with **aligned sliders + editable numeric fields** (volume, tsundere, war, speed/pitch/intonation) and **saveable presets** (`ai-notify preset save <name>` / `load` / `delete`), so you don't re-tune every time.
+- **⚙ 設定…** → a settings window with **aligned sliders + editable numeric fields** and **saveable presets** (`ai-notify preset save <name>` / `load` / `delete`), so you don't re-tune every time.
 
 <p>
-  <img alt="ai-notify menu — volume, tsundere, and voice controls" src="https://raw.githubusercontent.com/unoryota/ai-notify/main/assets/menubar.png" width="250">
+  <img alt="ai-notify menu — blue sliders for volume, prosody, ツンデレ, アドレナリン" src="https://raw.githubusercontent.com/unoryota/ai-notify/main/assets/menubar.png" width="250">
   &nbsp;&nbsp;
-  <img alt="per-pane spoken name and voice, one row per terminal" src="https://raw.githubusercontent.com/unoryota/ai-notify/main/assets/menubar-panes.png" width="250">
+  <img alt="per-pane list — each terminal named with its own voice" src="https://raw.githubusercontent.com/unoryota/ai-notify/main/assets/menubar-panes.png" width="250">
 </p>
 
-*Left: global volume / tsundere / voices. Right: each pane named and given its own voice (🗣 バックエンド → Kyoko, infra → ずんだもん).*
+*Left: the menu's blue sliders (volume, 速さ/高さ/抑揚, ツンデレ, アドレナリン). Right: the per-pane list — each terminal named and voiced (🗣 name — 🔊 voice).*
+
+The **⚙ settings window** — every slider on one grid, an editable number beside each, and a preset bar to save/restore your setup:
+
+![ai-notify settings window](https://raw.githubusercontent.com/unoryota/ai-notify/main/assets/settings.png)
 
 No third-party app needed. Prefer something else? There are drop-in recipes for **Hammerspoon**, **SwiftBar/xbar**, **Raycast**, and the built-in **macOS Shortcuts** in [`recipes/`](recipes/). `ai-notify status --icon` prints just `🔔`/`🔕` to embed in tmux / your prompt / Claude Code's status line.
 
