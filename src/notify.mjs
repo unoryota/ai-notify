@@ -138,11 +138,24 @@ const banner = (title, subtitle, message, { activate, urgent } = {}) => {
 // Translators lowercase product names ("Claude is waiting…" -> "claude…").
 // Restore the canonical casing of the agent names we know about so the
 // notification/read-out doesn't read as awkward lowercase Japanese.
-const restoreAgentNames = (text) =>
+// (Kept in sync with the providers in src/providers/index.mjs.)
+export const restoreAgentNames = (text) =>
   String(text)
     .replace(/\bclaude\b/gi, 'Claude')
     .replace(/\bcodex\b/gi, 'Codex')
     .replace(/\bgemini\b/gi, 'Gemini');
+
+// True if the text contains Japanese (kana / kanji / half-width kana).
+const isJa = (s) => /[぀-ヿ㐀-鿿ｦ-ﾟ]/.test(s);
+
+// Join the pane name to the read-out as a vocative ("ジョン、…"). We use a bare
+// comma 「、」 — NOT the topic particle 「は/わ」: the body is usually a full
+// sentence that already carries its own subject (e.g. translated
+// "Claudeはあなたの入力を待っています"), so adding the name as a second topic
+// ("ジョンわ、Claudeは…") reads as awkward double-topic Japanese. A comma after
+// the name avoids that and reads naturally. Other languages get a comma too.
+export const joinName = (name, body) =>
+  name ? `${name}${isJa(body) ? '、' : ', '}${body}` : body;
 
 // A short, speakable gist of a summary: the first sentence, capped at `max`
 // characters on a clause boundary — enough to tell which task, not a monologue.
@@ -216,14 +229,8 @@ export const emit = ({ provider = 'default', event = 'done', label = '', message
   //   3. the auto-derived label — only when speakLabel is on (else slow filler).
   const envName = (process.env.AI_NOTIFY_LABEL || '').trim();
   const spokenName = envName || pane.speakName || (config.speakLabel === true && label ? label : '');
-  // Join the pane name to the read-out as a vocative ("ジョン、…"). We use a bare
-  // comma 「、」 — NOT the topic particle 「は/わ」: the body is usually a full
-  // sentence that already carries its own subject (e.g. translated "Claudeは
-  // あなたの入力を待っています"), so adding the name as a second topic
-  // ("ジョンわ、Claudeは…") reads as awkward double-topic Japanese. A comma after
-  // the name avoids that and reads naturally. Other languages get a comma too.
-  const isJa = (s) => /[぀-ヿ㐀-鿿ｦ-ﾟ]/.test(s); // kana / kanji / half-width kana
-  const joinName = (name, body) => (name ? `${name}${isJa(body) ? '、' : ', '}${body}` : body);
+  // joinName (module scope) prefixes the pane name as a vocative — see its
+  // comment for why we use a comma, not the topic particle.
   const speakText = joinName(spokenName, spokenBody);
 
   // Per-pane voice (precedence: $AI_NOTIFY_* env > this pane's pick > global).
