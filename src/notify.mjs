@@ -135,6 +135,15 @@ const banner = (title, subtitle, message, { activate, urgent } = {}) => {
   // win32: skipped (no dependency-free toast); sound/voice still fire.
 };
 
+// Translators lowercase product names ("Claude is waiting…" -> "claude…").
+// Restore the canonical casing of the agent names we know about so the
+// notification/read-out doesn't read as awkward lowercase Japanese.
+const restoreAgentNames = (text) =>
+  String(text)
+    .replace(/\bclaude\b/gi, 'Claude')
+    .replace(/\bcodex\b/gi, 'Codex')
+    .replace(/\bgemini\b/gi, 'Gemini');
+
 // A short, speakable gist of a summary: the first sentence, capped at `max`
 // characters on a clause boundary — enough to tell which task, not a monologue.
 const shortenForSpeech = (text, max = 40) => {
@@ -177,6 +186,9 @@ export const emit = ({ provider = 'default', event = 'done', label = '', message
   } else {
     fullBody = fromTemplate || fallback;
   }
+  // Translation lowercases product names ("Claude" -> "claude"); restore the
+  // well-known agent names so banners and read-outs read correctly.
+  fullBody = restoreAgentNames(fullBody);
   // Spoken read-out — short enough not to get cut off, but enough to identify
   // WHICH task: the window label + a short gist of what happened (the first
   // clause of the summary). speakAgentMessage:true reads the whole thing.
@@ -204,14 +216,14 @@ export const emit = ({ provider = 'default', event = 'done', label = '', message
   //   3. the auto-derived label — only when speakLabel is on (else slow filler).
   const envName = (process.env.AI_NOTIFY_LABEL || '').trim();
   const spokenName = envName || pane.speakName || (config.speakLabel === true && label ? label : '');
-  // Join the pane name to the read-out as the SUBJECT. Japanese needs the topic
-  // particle ("ジョンWA、…") — a bare comma ("ジョン、…") reads as calling out TO John,
-  // not saying John is the one finishing / waiting. We write the particle as 「わ」
-  // (not 「は」): TTS engines often mis-read the kanji-particle 「は」 as the literal
-  // "ha", whereas 「わ」 is always voiced "wa". This is the spoken text only — the
-  // banner shows the original message. Other languages just get a comma.
+  // Join the pane name to the read-out as a vocative ("ジョン、…"). We use a bare
+  // comma 「、」 — NOT the topic particle 「は/わ」: the body is usually a full
+  // sentence that already carries its own subject (e.g. translated "Claudeは
+  // あなたの入力を待っています"), so adding the name as a second topic
+  // ("ジョンわ、Claudeは…") reads as awkward double-topic Japanese. A comma after
+  // the name avoids that and reads naturally. Other languages get a comma too.
   const isJa = (s) => /[぀-ヿ㐀-鿿ｦ-ﾟ]/.test(s); // kana / kanji / half-width kana
-  const joinName = (name, body) => (name ? `${name}${isJa(body) ? 'わ、' : ', '}${body}` : body);
+  const joinName = (name, body) => (name ? `${name}${isJa(body) ? '、' : ', '}${body}` : body);
   const speakText = joinName(spokenName, spokenBody);
 
   // Per-pane voice (precedence: $AI_NOTIFY_* env > this pane's pick > global).
