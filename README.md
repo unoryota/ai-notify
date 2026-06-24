@@ -60,7 +60,7 @@ ai-notify use <name> [voice] [vol] [--tab <t>]     # set THIS pane's name + voic
 ai-notify toggle | on | off | status               # the mute switch
 ai-notify volume [0.0-2.0]                          # get/set output volume
 ai-notify voice [number|name|preview|default]      # pick the spoken voice
-ai-notify voicevox [on <id>|off|speakers|test]     # speak in VOICEVOX voices
+ai-notify voicevox [setup|on <id>|off|speakers|test] # speak in VOICEVOX voices
 ai-notify tsundere [on|off|level <0-1>|test|status]   # tsundere persona (toggle + bipolar slider; center = off)
 ai-notify safety   [on|off|level <0-1>|test|status]   # 心理的安全性 (toggle + bipolar slider; 0=ブラック … 0.5=off … 1=ホワイト)
 ai-notify notify [<kind> on|off]                   # which events alert (input|permission|done|…)
@@ -198,7 +198,7 @@ ai-notify translate on ja       # translate the agent's message, then speak it
 ai-notify translate test "I fixed the auth bug and added 3 tests."
 ```
 
-Key-less and no cost (one HTTP request; falls back to a localized template offline). The desktop banner still shows the original text.
+Key-less and no cost (one HTTP request per unique message — repeats are cached, so they're instant and offline-safe; falls back to a localized template when a fresh translation can't be fetched). The desktop banner still shows the original text.
 
 ## 💢 Tsundere mode (optional, fun)
 

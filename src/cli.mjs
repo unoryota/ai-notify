@@ -1205,7 +1205,7 @@ Per-window overrides (export in a terminal before launching the agent):
   AI_NOTIFY_LABEL=api     name this window in the spoken/banner read-out
 
 Make it one tap: bind a hotkey / menubar button to \`ai-notify toggle\`
-(see recipes/ for macOS Shortcuts, Raycast, Stream Deck).`);
+(see recipes/ for macOS Shortcuts, Raycast, SwiftBar, Hammerspoon, tmux).`);
 }
 
 const handler =
