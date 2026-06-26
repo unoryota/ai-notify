@@ -892,9 +892,13 @@ const cmds = {
   // Garbage-collect ghost panes and orphaned "waiting" entries whose tty no
   // longer runs an agent. The menu bar app calls this at startup so a reboot
   // (which leaves the on-disk state files keyed by now-dead ttys) doesn't show
-  // stale panes / waiting popups. Also runs implicitly on every `menu-json`.
+  // stale panes / waiting popups. `includeVoices` also clears per-pane names /
+  // voices for dead ttys: a reboot means every session is new, so a recycled
+  // tty must not inherit the previous occupant's read-out name. Safe here
+  // because this is the startup-only reap; the per-render reap in `menu-json`
+  // intentionally leaves voice config alone.
   reap() {
-    const removed = reapDeadPanes(liveAgentTtys());
+    const removed = reapDeadPanes(liveAgentTtys(), { includeVoices: true });
     log(`reaped ${removed} dead pane record${removed === 1 ? '' : 's'}`);
   },
 

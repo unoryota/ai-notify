@@ -15,7 +15,17 @@ const { reapDeadPanes } = await import('../src/state.mjs');
 
 const panesPath = join(stateDir, 'panes.json');
 const waitingPath = join(stateDir, 'waiting.json');
+const paneVoicesPath = join(stateDir, 'pane-voices.json');
 const readJson = (p) => JSON.parse(readFileSync(p, 'utf8'));
+
+const seedVoices = () =>
+  writeFileSync(
+    paneVoicesPath,
+    JSON.stringify({
+      '/dev/ttys000': { tts: 'voicevox', speaker: 3, speakName: 'live' },
+      '/dev/ttys004': { tts: 'voicevox', speaker: 3, speakName: 'fugu' },
+    }),
+  );
 
 const seed = () => {
   writeFileSync(
@@ -55,6 +65,25 @@ test('reapDeadPanes keeps all live records and reports 0 removed', () => {
   const removed = reapDeadPanes(['/dev/ttys000', '/dev/ttys004']);
   assert.equal(removed, 0);
   assert.deepEqual(Object.keys(readJson(panesPath)).sort(), ['/dev/ttys000', '/dev/ttys004']);
+});
+
+test('reapDeadPanes leaves pane-voices alone by default (per-render reap)', () => {
+  seed();
+  seedVoices();
+  reapDeadPanes(['/dev/ttys000']);
+  // the per-render reap must NOT drop voice config for an idle (not-running) pane
+  assert.deepEqual(Object.keys(readJson(paneVoicesPath)).sort(), ['/dev/ttys000', '/dev/ttys004']);
+});
+
+test('reapDeadPanes with includeVoices clears dead per-pane names (startup/reboot)', () => {
+  seed();
+  seedVoices();
+  const removed = reapDeadPanes(['/dev/ttys000'], { includeVoices: true });
+  // ghost in panes + waiting + pane-voices = 3
+  assert.equal(removed, 3);
+  assert.deepEqual(Object.keys(readJson(paneVoicesPath)), ['/dev/ttys000']);
+  // a recycled tty no longer inherits the previous session's read-out name
+  assert.equal(readJson(paneVoicesPath)['/dev/ttys000'].speakName, 'live');
 });
 
 test('reapDeadPanes is a no-op when the state files do not exist', () => {

@@ -335,12 +335,22 @@ export const readPanes = () =>
 // that would clear them was killed before it could. `liveTtys` is the set of
 // ttys still running an agent (from util.liveAgentTtys()); anything not in it
 // is dead and gets dropped. Pure fs so it stays testable; the caller supplies
-// the live set. Per-pane voice settings (pane-voices.json) are intentional user
-// config and are left untouched. Returns the number of records removed.
-export const reapDeadPanes = (liveTtys = []) => {
+// the live set.
+//
+// `includeVoices` also drops per-pane settings (pane-voices.json: the read-out
+// name, voice, volume, tsundere…) for dead ttys. A tty device path is recycled
+// by the OS, so after a reboot a brand-new terminal session inherits whatever
+// name the previous occupant of that tty had ("fugu" lingering on a fresh
+// session). A reboot means the session IS new, so its name should reset. This
+// is gated because the per-render reap (menu-json) must NOT touch voice config —
+// only the startup reap (a genuine relaunch/reboot) passes it. Returns the
+// number of records removed.
+export const reapDeadPanes = (liveTtys = [], { includeVoices = false } = {}) => {
   const live = new Set(liveTtys);
   let removed = 0;
-  for (const path of [panesPath(), waitingPath()]) {
+  const paths = [panesPath(), waitingPath()];
+  if (includeVoices) paths.push(paneVoicesPath());
+  for (const path of paths) {
     const all = readJson(path, {});
     let changed = false;
     for (const tty of Object.keys(all)) {

@@ -511,6 +511,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private weak var tsundereCap: NSTextField?
     private weak var psafetySlider: NSSlider?
     private weak var psafetyCap: NSTextField?
+    // Live ref to the global volume row's speaker icon, so unmuting by dragging
+    // the slider flips 🔇 → 🔊 in place without rebuilding the (open) menu.
+    private weak var globalVolumeIcon: NSTextField?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -685,7 +688,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func quit() { NSApp.terminate(nil) }
     @objc private func openSettings() { settings.show() }
 
-    @objc private func volumeChanged(_ s: NSSlider) { State.setVolume(s.doubleValue) }
+    @objc private func volumeChanged(_ s: NSSlider) {
+        State.setVolume(s.doubleValue)
+        // Touching the volume means "I want to hear this": if we were muted,
+        // unmute — and reflect it live (the menu bar icon loses its red slash,
+        // the row's speaker flips 🔇 → 🔊) so it's never ambiguous whether sound
+        // will actually play.
+        if State.isMuted {
+            State.setMuted(false)
+            globalVolumeIcon?.stringValue = "🔊"
+            render()
+        }
+    }
     // The slider is shown REVERSED: left = ツン (far-left = 極寒), center = off, right =
     // デレ (far-right = デレデレ). The file keeps the canonical scale (0 = デレ … 1 = ツン),
     // so the knob sits at 1 - value and we write back 1 - position.
@@ -786,11 +800,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // (applied on release to avoid a subprocess per drag tick).
     private func sliderRow(value: Double, action: Selector, identifier: String?) -> NSMenuItem {
         let row = NSView(frame: NSRect(x: 0, y: 0, width: 220, height: 26))
-        let icon = NSTextField(labelWithString: "🔊"); icon.frame = NSRect(x: 12, y: 4, width: 20, height: 18)
+        // The global row (identifier == nil) reflects mute state: 🔇 when muted,
+        // so the icon and the menu bar icon agree. Dragging the slider unmutes
+        // (see volumeChanged), flipping this back to 🔊.
+        let muted = identifier == nil && State.isMuted
+        let icon = NSTextField(labelWithString: muted ? "🔇" : "🔊"); icon.frame = NSRect(x: 12, y: 4, width: 20, height: 18)
         let slider = NSSlider(value: value, minValue: 0, maxValue: 2, target: self, action: action)
         slider.frame = NSRect(x: 36, y: 3, width: 170, height: 20)
         slider.isContinuous = (identifier == nil)
         if let id = identifier { slider.identifier = NSUserInterfaceItemIdentifier(id) }
+        if identifier == nil { globalVolumeIcon = icon }
         row.addSubview(icon); row.addSubview(slider)
         let item = NSMenuItem(); item.view = row
         return item
