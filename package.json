@@ -1,6 +1,6 @@
 {
   "name": "ai-notify",
-  "version": "0.14.8",
+  "version": "0.14.9",
   "description": "Desktop, sound, and spoken notifications for terminal AI coding agents (Claude Code, Codex, Gemini, ...) — with one mute switch that covers all of them, across every terminal.",
   "type": "module",
   "bin": {
