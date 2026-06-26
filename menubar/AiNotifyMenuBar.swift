@@ -35,6 +35,11 @@ enum State {
         return min(2, max(0, v))
     }
 
+    // Volume at 0 is silence just like an explicit mute, so the menu bar icon and
+    // the slider's speaker glyph treat it the same (slash mark / 🔇). The notify
+    // path mirrors this (readVolume()===0 gates sound), so the mark stays truthful.
+    static var isEffectivelyMuted: Bool { isMuted || volume <= 0 }
+
     // Any pane waiting for input -> the icon shows a yellow status.
     static var hasWaiting: Bool {
         guard let s = try? String(contentsOfFile: file("waiting.json"), encoding: .utf8) else { return false }
@@ -604,7 +609,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func render() {
         guard let b = statusItem.button else { return }
         b.title = ""
-        b.image = statusImage(muted: State.isMuted, waiting: State.hasWaiting)
+        b.image = statusImage(muted: State.isEffectivelyMuted, waiting: State.hasWaiting)
     }
 
     @objc private func handleClick(_ sender: Any?) {
@@ -690,15 +695,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func volumeChanged(_ s: NSSlider) {
         State.setVolume(s.doubleValue)
-        // Touching the volume means "I want to hear this": if we were muted,
-        // unmute — and reflect it live (the menu bar icon loses its red slash,
-        // the row's speaker flips 🔇 → 🔊) so it's never ambiguous whether sound
-        // will actually play.
-        if State.isMuted {
-            State.setMuted(false)
-            globalVolumeIcon?.stringValue = "🔊"
-            render()
-        }
+        // Dragging the volume ABOVE 0 means "I want to hear this": clear an
+        // explicit mute. Dragging to 0 is itself a mute (silence), so we leave
+        // the flag alone and let isEffectivelyMuted keep the 🔇 / slash mark.
+        if s.doubleValue > 0 && State.isMuted { State.setMuted(false) }
+        globalVolumeIcon?.stringValue = State.isEffectivelyMuted ? "🔇" : "🔊"
+        render()
     }
     // The slider is shown REVERSED: left = ツン (far-left = 極寒), center = off, right =
     // デレ (far-right = デレデレ). The file keeps the canonical scale (0 = デレ … 1 = ツン),
@@ -800,10 +802,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // (applied on release to avoid a subprocess per drag tick).
     private func sliderRow(value: Double, action: Selector, identifier: String?) -> NSMenuItem {
         let row = NSView(frame: NSRect(x: 0, y: 0, width: 220, height: 26))
-        // The global row (identifier == nil) reflects mute state: 🔇 when muted,
-        // so the icon and the menu bar icon agree. Dragging the slider unmutes
-        // (see volumeChanged), flipping this back to 🔊.
-        let muted = identifier == nil && State.isMuted
+        // The global row (identifier == nil) reflects mute state: 🔇 when muted
+        // OR the volume is 0, so the icon and the menu bar icon agree. Dragging
+        // the slider above 0 unmutes (see volumeChanged), flipping this to 🔊.
+        let muted = identifier == nil && State.isEffectivelyMuted
         let icon = NSTextField(labelWithString: muted ? "🔇" : "🔊"); icon.frame = NSRect(x: 12, y: 4, width: 20, height: 18)
         let slider = NSSlider(value: value, minValue: 0, maxValue: 2, target: self, action: action)
         slider.frame = NSRect(x: 36, y: 3, width: 170, height: 20)

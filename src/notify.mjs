@@ -177,7 +177,11 @@ const shortenForSpeech = (text, max = 40) => {
 // notification toggles.
 export const emit = ({ provider = 'default', event = 'done', label = '', message = '', alert = true }) => {
   const config = readConfig();
-  const muted = isMuted();
+  // Volume 0 is silence just like an explicit mute, so it suppresses the spoken
+  // read-out AND the desktop banner (an un-muted banner would leak macOS's own
+  // notification ping). This keeps the menu bar's 🔇 / slash mark truthful when
+  // the global slider is dragged to 0. readVolume() is null when unset (≠ 0).
+  const muted = isMuted() || readVolume() === 0;
   const p = config.providers[provider] || config.providers.default;
 
   const soundName = (p.sound && (p.sound[event] || p.sound.done)) || null;
