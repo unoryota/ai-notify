@@ -889,7 +889,16 @@ const cmds = {
     const waiting = readWaiting(); // { tty: {ts,msg} }
     const settings = readAllPaneSettings(); // { tty: {speakName,...} }
     const labels = Object.fromEntries(readPanes().map((p) => [p.tty, p.label]));
-    const ttys = new Set([...Object.keys(waiting), ...Object.keys(settings), ...Object.keys(labels)]);
+    let ttys = new Set([...Object.keys(waiting), ...Object.keys(settings), ...Object.keys(labels)]);
+    // Only offer panes that are CURRENTLY live tmux panes. A name persists by tty
+    // (pane-voices.json), so closing "リンゴ" then opening a new one leaves a dead
+    // tty AND a live one both named リンゴ — and the dead one, iterating first, would
+    // shadow the live pane (resolveCommand can't see tmux liveness). Filtering to
+    // live ttys here means a stale name never hides the pane you actually meant.
+    // Skip the filter when tmux is unreachable (empty map) so the clearer "tmux
+    // サーバが見つかりません" message below still fires instead of a name-not-found.
+    const live = tmux.panesByTty();
+    if (Object.keys(live).length) ttys = new Set([...ttys].filter((t) => live[t]));
     // One pane can answer to SEVERAL readings (ポール / ぽーる / Paul): whisper may
     // render the same name in kana OR latin depending on how it's pronounced, and
     // a romaji fold can't bridge e.g. "Paul"→ポール. So we expose the pane once per
@@ -922,7 +931,7 @@ const cmds = {
       process.exit(2);
     }
 
-    const paneId = tmux.paneForTty(d.tty);
+    const paneId = live[d.tty]?.paneId || tmux.paneForTty(d.tty);
     const who = d.name || d.tty;
     const desc = `${who}${paneId ? ` (${paneId})` : ''} → ${d.label}`;
 
@@ -934,19 +943,23 @@ const cmds = {
       if (dry) return;
     }
 
+    // Failures past this point print the reason to STDOUT (not just stderr): the
+    // voice listener captures only stdout, so a stderr-only error vanished into an
+    // empty `reply:` line — the user saw nothing and couldn't tell why a perfectly
+    // recognized command did nothing (e.g. the named pane has no live tmux pane).
     if (!tmux.isAvailable()) {
-      console.error('tmux サーバが見つかりません。エージェントを tmux 内で起動してください（`tmux` → 各ペインで agent 起動）。');
+      log('🤔 tmux サーバが見つかりません。エージェントを tmux 内で起動してください。');
       process.exit(3);
     }
     if (!paneId) {
-      console.error(`tmux ペインが見つかりません（${d.tty}）。この端末は tmux 管理下にありますか？`);
+      log(`🤔 ${who} のペインが見つかりません。tmux 内で起動していますか？（${d.tty}）`);
       process.exit(3);
     }
     try {
       tmux.inject(paneId, { text: d.text, keys: d.keys });
       log(`✅ ${desc}`);
     } catch (e) {
-      console.error(`注入に失敗しました: ${e.message}`);
+      log(`⚠️ ${who} への注入に失敗しました: ${e.message}`);
       process.exit(4);
     }
   },
