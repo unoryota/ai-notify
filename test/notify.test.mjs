@@ -2,11 +2,31 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { joinName, restoreAgentNames, summaryMaxChars, shortenForSpeech, effectiveSummaryLevel } from '../src/notify.mjs';
+import { joinName, restoreAgentNames, summaryMaxChars, shortenForSpeech, effectiveSummaryLevel, looksLikeInputRequest } from '../src/notify.mjs';
 
 // Isolate state-file reads (effectiveSummaryLevel falls through to readSummaryLevel)
 // to an empty dir so the suite never depends on the developer's live 要約度 setting.
 process.env.XDG_STATE_HOME = join(tmpdir(), `ai-notify-test-${process.pid}`);
+
+test('looksLikeInputRequest: a turn that asks for input is detected, a finished one is not', () => {
+  // The screenshot case: a clarification that ends its turn with A/B/C/D choices.
+  const choices = [
+    'どれに近いか教えてください：',
+    '- A. 友だち状態バッジの話',
+    '- B. コードベースのhitステータス',
+    '- C. プロセスの実行ステータス',
+    '- D. その他',
+    'ひと言補足いただければ、すぐ調べて表示します。',
+  ].join('\n');
+  assert.equal(looksLikeInputRequest(choices), true); // enumerated choices
+  assert.equal(looksLikeInputRequest('この方針で進めてよいですか？'), true); // 末尾の疑問
+  assert.equal(looksLikeInputRequest('Should I proceed with this approach?'), true);
+  assert.equal(looksLikeInputRequest('どちらの実装にしますか'), true); // interrogative ending
+  // A plainly finished turn must stay "done" — no false yellow.
+  assert.equal(looksLikeInputRequest('3ファイルを更新しました。テストも通っています。'), false);
+  assert.equal(looksLikeInputRequest('なぜ失敗したのか調べました。原因はnullでした。'), false);
+  assert.equal(looksLikeInputRequest(''), false);
+});
 
 test('joinName: Japanese uses a vocative comma, never a double topic', () => {
   // The body already carries its own subject ("Claudeは…"); the name must NOT
