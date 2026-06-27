@@ -34,6 +34,19 @@ test('option: Japanese "2番" reading maps to choice 2', () => {
   assert.equal(d.text, '2');
 });
 
+test('option: a bare digit is a choice only standalone — a number-led sentence is free-form', () => {
+  // Regression: "1ヶ月間の…" began with "1" and was wrongly sent as "select
+  // choice 1" instead of typed. A digit is an option only when it's the whole
+  // remainder (or N番 / N番目); otherwise it's a quantity in free-form dictation.
+  const sentence = '1ヶ月間のgitのログを見て30件出して';
+  const d = resolveCommand(`へい ずんだもんアルファ、${sentence}`, panes());
+  assert.equal(d.action, 'freeform');
+  assert.equal(d.text, sentence);
+  // Standalone digit and N番目 still select.
+  assert.equal(resolveCommand('へい ずんだもんアルファ、3', panes()).action, 'option');
+  assert.equal(resolveCommand('へい ずんだもんアルファ、3番目', panes()).text, '3');
+});
+
 test('shortcut: "はい" approves with Enter (default-highlighted choice)', () => {
   const d = resolveCommand('へい ずんだもんアルファ、はい', panes());
   assert.equal(d.action, 'shortcut');
