@@ -20,11 +20,15 @@
 brew install unoryota/tap/ai-notify   # macOS (Homebrew)
 # or:  npm i -g ai-notify
 
-ai-notify init        # auto-detects your agents and wires them
+ai-notify init             # auto-detects your agents and wires them
+ai-notify menubar install  # macOS: add the menu bar bell 🔔 (optional, recommended)
 ```
 
-That's the whole setup — `init` finds Claude Code / Codex / Gemini and wires
-their hooks. From then on you control everything with one switch:
+`init` finds Claude Code / Codex / Gemini and wires their hooks — that alone gets
+you sounds, spoken read-outs, and desktop banners. The **menu bar icon is a
+separate step**: run `ai-notify menubar install` (macOS only) to get the 🔔 you
+left-click for volume/voices and right-click to mute. From then on you control
+everything with one switch:
 
 ![ai-notify usage: init, status, one-switch mute, voices](https://raw.githubusercontent.com/unoryota/ai-notify/main/assets/usage.gif)
 
@@ -59,6 +63,7 @@ ai-notify init [--dry-run] [--only claude,codex,gemini]   # wire detected agents
 ai-notify use <name> [voice] [vol] [--tab <t>]     # set THIS pane's name + voice + tab title, at once
 ai-notify toggle | on | off | status               # the mute switch
 ai-notify volume [0.0-2.0]                          # get/set output volume
+ai-notify summary [0.0-1.0]                         # read-out length: 0=sound only … 0.5=~10s … 1=full
 ai-notify voice [number|name|preview|default]      # pick the spoken voice
 ai-notify voicevox [setup|on <id>|off|speakers|test] # speak in VOICEVOX voices
 ai-notify tsundere [on|off|level <0-1>|test|status]   # tsundere persona (toggle + bipolar slider; center = off)
@@ -124,7 +129,15 @@ You can't type into the terminal that's running an agent, so drive everything fr
 
 ```sh
 ai-notify menubar install   # native menu bar app, starts at login
+ai-notify menubar status    # built ✓ / installed ✓ / running ✓
 ```
+
+> **No icon after `init`?** `init` only wires the agent hooks — the menu bar app
+> is a separate install (the command above). If the 🔔 still doesn't appear:
+> it's **macOS-only**; building it needs the Swift toolchain, so run
+> `xcode-select --install` (Command Line Tools) if `ai-notify menubar status`
+> shows `built: —`; and after a `brew upgrade` re-run `ai-notify menubar install`
+> (the login item points at the versioned install path, which changes on upgrade).
 
 A monochrome waveform icon shows status by color (Adobe-style): plain when idle, a **yellow** dot when an agent is waiting for you, **red + slash** when muted. Muting is **fully silent** — no sound and no desktop banner (a banner would make macOS play its own notification ping) — yet a waiting pane still shows via the yellow icon + a highlighted window, so you never miss it on the way back to your desk.
 
