@@ -188,7 +188,11 @@ const DENY = ['いいえ', 'いや', 'だめ', 'やめて', '却下', '拒否', 
 const leadingOption = (rest) => {
   let m;
   if ((m = /^([a-z])(?![a-z])/.exec(rest))) return { index: m[1].charCodeAt(0) - 96 };
-  if ((m = /^([1-9])/.exec(rest))) return { index: Number(m[1]) };
+  // A bare leading digit is an option ONLY when it's the whole remainder (or N番 /
+  // N番目). Unlike a Latin letter, a digit routinely STARTS a free-form sentence
+  // as a quantity ("1ヶ月間のログを…", "30件", "3つ") — matching those as "select
+  // choice 1/3" silently sent the wrong keystroke instead of typing the command.
+  if ((m = /^([1-9])(?:番目?)?$/.exec(rest))) return { index: Number(m[1]) };
   if ((m = /^(えー|びー|しー|でぃー|いー)/.exec(rest))) return { index: KANA_ALPHA[m[1]] };
   if ((m = /^(いち|に|さん|よん|し|ご|ろく|なな|しち|はち)ばん/.exec(rest))) return { index: KANA_NUM[m[1]] };
   return null;
