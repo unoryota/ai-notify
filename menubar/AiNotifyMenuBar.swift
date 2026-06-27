@@ -12,7 +12,6 @@
 // Builds with the system `swiftc` — no Xcode project, no dependencies.
 
 import Cocoa
-import Speech
 import AVFoundation
 
 enum State {
@@ -23,6 +22,24 @@ enum State {
         return (base as NSString).appendingPathComponent("ai-notify")
     }
     static func file(_ name: String) -> String { (dir() as NSString).appendingPathComponent(name) }
+
+    // config.json lives in the CONFIG dir (XDG_CONFIG_HOME / ~/.config), NOT the
+    // state dir — keep this separate from file()/json() which read state.
+    static func configFile() -> String {
+        let env = ProcessInfo.processInfo.environment
+        let base = env["XDG_CONFIG_HOME"]
+            ?? (NSHomeDirectory() as NSString).appendingPathComponent(".config")
+        return ((base as NSString).appendingPathComponent("ai-notify") as NSString).appendingPathComponent("config.json")
+    }
+
+    // Speaker's language for voice input: "ja" (default) or "en". Drives whisper's
+    // transcription language and prompt. Read fresh each time (cheap, tiny file).
+    static var speakerLang: String {
+        guard let d = try? Data(contentsOf: URL(fileURLWithPath: configFile())),
+              let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
+              let l = o["speakerLang"] as? String, l == "en" || l == "ja" else { return "ja" }
+        return l
+    }
 
     static var isMuted: Bool { FileManager.default.fileExists(atPath: file("muted")) }
     static func setMuted(_ m: Bool) {
@@ -178,7 +195,9 @@ enum State {
     static func knownPaneNames() -> [String] {
         var names: [String] = []
         for (_, v) in json("pane-voices.json") {
-            if let d = v as? [String: Any], let n = d["speakName"] as? String { names.append(n) }
+            guard let d = v as? [String: Any] else { continue }
+            if let n = d["speakName"] as? String { names.append(n) }
+            if let a = d["aliases"] as? [String] { names.append(contentsOf: a) } // extra readings (ポール/Paul)
         }
         for (_, v) in json("panes.json") {
             if let d = v as? [String: Any], let n = d["label"] as? String { names.append(n) }
@@ -186,10 +205,38 @@ enum State {
         return names.map(normName).filter { $0.count >= 2 }
     }
 
-    // Does a finalized utterance address one of the named panes? (The wake gate.)
+    // The pane names in their ORIGINAL form (not normalized) — fed to whisper as
+    // an initial `--prompt` so it renders a spoken name as that exact string
+    // ("ジョン" not "JON", "ポール" not "Paul") instead of romanizing it. Deduped,
+    // order-preserving.
+    static func paneNamesRaw() -> [String] {
+        var names: [String] = []
+        for (_, v) in json("pane-voices.json") {
+            guard let d = v as? [String: Any] else { continue }
+            if let n = d["speakName"] as? String, !n.isEmpty { names.append(n) }
+            // Seed whisper with the aliases too (e.g. "Paul"), so it can render the
+            // name in the exact form the speaker used instead of romanizing freely.
+            if let a = d["aliases"] as? [String] { names.append(contentsOf: a.filter { !$0.isEmpty }) }
+        }
+        for (_, v) in json("panes.json") {
+            if let d = v as? [String: Any], let n = d["label"] as? String, !n.isEmpty { names.append(n) }
+        }
+        var seen = Set<String>()
+        return names.filter { seen.insert($0).inserted }
+    }
+
+    // The wake gate: only forward an utterance to `ai-notify reply` if it OPENS
+    // with a wake word ("へい"/"hey"/…). route.mjs then does the (romaji-aware)
+    // name match and decides. Gating on the wake word — not on a kana pane name —
+    // means a name whisper ROMANIZED ("John" for ジョン, when an English command
+    // follows) still gets through; the old name-containment check missed those.
+    // Ambient speech and our own read-aloud rarely open with a wake word.
     static func utteranceAddressesPane(_ text: String) -> Bool {
         let n = normName(text)
-        return knownPaneNames().contains { n.contains($0) }
+        // "へい/えい/うぇい" = how whisper renders a spoken "Hey" (ヘイ/エイ/ウェイ by
+        // pronunciation). Keep in sync with route.mjs WAKE.
+        let wake = ["へい", "えい", "うぇい", "はい", "ねえ", "ねぇ", "おーい", "おい", "おっす", "hey", "ok"]
+        return wake.contains { let w = normName($0); return !w.isEmpty && n.hasPrefix(w) }
     }
 
     // Append a timestamped line to <stateDir>/voice.log (capped) so the voice
@@ -217,15 +264,31 @@ enum State {
         let task = Process()
         task.executableURL = URL(fileURLWithPath: launcher)
         task.arguments = args
-        let pipe = Pipe()
-        if capture { task.standardOutput = pipe; task.standardError = Pipe() }
-        do { try task.run() } catch { return nil }
-        if capture {
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            task.waitUntilExit()
-            return String(data: data, encoding: .utf8)
+        if !capture {
+            do { try task.run() } catch { return nil }
+            return nil
         }
-        return nil
+        let outPipe = Pipe(), errPipe = Pipe()
+        task.standardOutput = outPipe
+        task.standardError = errPipe
+        // Mark the pipe write-ends close-on-exec. Without this, a child spawned on
+        // ANOTHER thread (whisper-server, via the warm-up) inherits these still-open
+        // write fds and holds them open, so the read below never sees EOF and the
+        // main thread deadlocks — which froze the whole app (no logs, no audio).
+        fcntl(outPipe.fileHandleForWriting.fileDescriptor, F_SETFD, FD_CLOEXEC)
+        fcntl(errPipe.fileHandleForWriting.fileDescriptor, F_SETFD, FD_CLOEXEC)
+        do { try task.run() } catch { return nil }
+        // Drop our own copies of the write-ends so EOF arrives when the child exits.
+        try? outPipe.fileHandleForWriting.close()
+        try? errPipe.fileHandleForWriting.close()
+        // Read with a hard timeout: a stuck child must never hang the app.
+        let fh = outPipe.fileHandleForReading
+        var out = Data()
+        let sem = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .userInitiated).async { out = fh.readDataToEndOfFile(); sem.signal() }
+        if sem.wait(timeout: .now() + 8) == .timedOut { task.terminate(); return nil }
+        task.waitUntilExit()
+        return String(data: out, encoding: .utf8)
     }
 }
 
@@ -590,49 +653,83 @@ final class SettingsWindowController: NSObject {
     }
 }
 
-// Always-listening voice input. SFSpeechRecognizer (ja-JP) transcribes the mic
-// continuously; each finalized utterance (the user pauses) is checked against the
-// pane names — when it addresses one ("ずんだもんアルファ、Aを実行"), the whole
-// utterance is handed to `ai-notify reply`, which decides the target + injects it
-// via tmux. The pane name is the wake word, so nothing else fires.
-//
-// The audio engine + tap run once and stay up; only the recognition request/task
-// are recycled per utterance (SFSpeechRecognitionRequest finalizes after a pause
-// and has a ~1-min cap), which avoids audible engine restarts.
+// Always-listening voice input, powered by whisper.cpp (Homebrew `whisper-cli`).
+// We capture each utterance ourselves — AVAudioEngine tap → downsample to 16 kHz
+// mono → energy-based voice-activity detection — and, on a ~1s trailing pause,
+// hand the audio to whisper's large-v3-turbo model. It is far better at Japanese
+// AND embedded English ("git status") than the ja-JP on-device SFSpeechRecognizer
+// it replaces, and needs no macOS Dictation — only the mic. The decoded text runs
+// through the SAME wake gate + `ai-notify reply` path: when it addresses a pane
+// ("ずんだもんアルファ、Aを実行"), the whole utterance is injected via tmux.
 final class VoiceListener: NSObject {
-    private let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "ja-JP"))
-    private let engine = AVAudioEngine()
-    private var request: SFSpeechAudioBufferRecognitionRequest?
-    private var task: SFSpeechRecognitionTask?
+    private var engine = AVAudioEngine() // recreated on a device change (see restartEngine)
+    private var converter: AVAudioConverter?
+    private let outFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16000, channels: 1, interleaved: false)!
+    private let work = DispatchQueue(label: "ai-notify.whisper", qos: .userInitiated)
     private var running = false
     private var tapInstalled = false
-    private var silenceTimer: Timer?
-    private var lastText = ""
-    private var tapBuffers = 0
-    private var consecutiveErrors = 0
+    private var generation = 0 // bumped on disable; a late transcription with a stale gen is dropped
     private var loggedAudioOnce = false
-    private var generation = 0 // bumped on every teardown; stale task callbacks ignored
 
-    // Ask for Speech + mic permission, then start. completion(ok, message) on main.
+    // Self-healing. AVAudioEngine silently STOPS on an I/O configuration change —
+    // an output device swap (AirPods), a sample-rate change, sleep/wake, or the
+    // mic being grabbed by another app — and never resumes on its own, so the tap
+    // goes dead and the listener is deaf forever though the app stays alive (the
+    // "nothing gets logged anymore" bug). We recover two ways: (a) observe the
+    // config-change notification, and (b) a watchdog that restarts the engine if
+    // no audio buffer has arrived recently — catching the modes that post no note.
+    private var lastBufferAt: Double = 0   // epoch seconds of the last tap buffer
+    private var watchdog: Timer?
+    private var observingConfig = false
+
+    // VAD state — touched only on the audio (tap) thread, so no locking needed.
+    private var capturing = false
+    private var captured: [Float] = []
+    private var preRoll: [Float] = []
+    private var voicedSamples = 0
+    private var silentSamples = 0
+    private var uttPeak: Float = 0      // loudest frame in the current utterance (relative-endpoint ref)
+    private var noiseFloor: Float = 0.005
+    private var dbgPeak: Float = 0   // loudest frame since the last level log
+    private var dbgCount = 0
+
+    // Durations as 16 kHz sample counts.
+    private let preRollMax = 4800       // 0.3s kept before onset so the first mora isn't clipped
+    private let endpointSilence = 14400 // 0.9s of quiet ends the utterance (rides over mid-phrase pauses)
+    private let maxUtterance = 192000   // 12s hard cap (bounds worst-case log/transcribe lag)
+    private let minVoiced = 4000        // < ~0.25s of voiced audio → noise, dropped
+
+    private lazy var serverBin: String = {
+        ["/opt/homebrew/bin/whisper-server", "/usr/local/bin/whisper-server"]
+            .first { FileManager.default.isExecutableFile(atPath: $0) } ?? "whisper-server"
+    }()
+    private let modelPath = State.file("whisper/ggml-large-v3-turbo-q5_0.bin")
+    // A persistent whisper-server keeps the model resident in RAM, so each
+    // utterance costs only inference (~0.3s) instead of a fresh ~1s model load.
+    private let port = 8917
+    private var serverProc: Process?
+
+    // Verify whisper + model are present, ask for mic permission, then start.
     func enable(_ completion: @escaping (Bool, String) -> Void) {
-        State.voiceLog("enable() called; speechStatus=\(SFSpeechRecognizer.authorizationStatus().rawValue) micStatus=\(AVCaptureDevice.authorizationStatus(for: .audio).rawValue)")
-        SFSpeechRecognizer.requestAuthorization { auth in
-            DispatchQueue.main.async {
-                State.voiceLog("speech auth callback: \(auth.rawValue)")
-                guard auth == .authorized else { completion(false, "音声認識の許可が必要です（システム設定 › プライバシー）"); return }
-                self.requestMic { granted in
-                    State.voiceLog("mic granted: \(granted); recognizer=\(self.recognizer != nil ? "ok" : "nil") available=\(self.recognizer?.isAvailable ?? false)")
-                    guard granted else { completion(false, "マイクの許可が必要です（システム設定 › プライバシー）"); return }
-                    guard let r = self.recognizer, r.isAvailable else { completion(false, "日本語の音声認識が利用できません"); return }
-                    do {
-                        try self.start()
-                        State.voiceLog("listening (onDevice=\(r.supportsOnDeviceRecognition ? "yes" : "no"))")
-                        completion(true, "🎙️ 音声操作 ON")
-                    } catch {
-                        State.voiceLog("start FAILED: \(error.localizedDescription)")
-                        completion(false, "マイクの開始に失敗: \(error.localizedDescription)")
-                    }
-                }
+        State.voiceLog("enable() called; micStatus=\(AVCaptureDevice.authorizationStatus(for: .audio).rawValue)")
+        guard FileManager.default.isExecutableFile(atPath: serverBin) else {
+            completion(false, "whisper-server が見つかりません（brew install whisper-cpp）"); return
+        }
+        guard FileManager.default.fileExists(atPath: modelPath) else {
+            completion(false, "音声モデルがありません: \(modelPath)"); return
+        }
+        requestMic { granted in
+            State.voiceLog("mic granted: \(granted)")
+            guard granted else { completion(false, "マイクの許可が必要です（システム設定 › プライバシー）"); return }
+            do {
+                try self.start()
+                // Warm up the model server now so the first utterance is fast.
+                self.work.async { _ = self.ensureServerReady() }
+                State.voiceLog("listening (whisper-server: \((self.modelPath as NSString).lastPathComponent))")
+                completion(true, "🎙️ 音声操作 ON")
+            } catch {
+                State.voiceLog("start FAILED: \(error.localizedDescription)")
+                completion(false, "マイクの開始に失敗: \(error.localizedDescription)")
             }
         }
     }
@@ -647,138 +744,337 @@ final class VoiceListener: NSObject {
 
     private func start() throws {
         let input = engine.inputNode
-        let format = input.outputFormat(forBus: 0)
-        if !loggedAudioOnce { State.voiceLog("input format: \(format.sampleRate)Hz ch=\(format.channelCount)") }
+        let inFormat = input.outputFormat(forBus: 0)
+        if !loggedAudioOnce { State.voiceLog("input format: \(inFormat.sampleRate)Hz ch=\(inFormat.channelCount)") }
+        // During a device transition (AirPods connecting, sleep/wake) the input
+        // format is briefly invalid (0 Hz / 0 ch). installTap() with such a format
+        // raises an NSException — which Swift can't catch, so it ABORTS the whole
+        // app (the AirPods crash). Refuse to install until the format is sane; the
+        // watchdog retries shortly, by when the new device has settled.
+        guard inFormat.sampleRate > 0, inFormat.channelCount > 0 else {
+            throw NSError(domain: "ai-notify", code: 1,
+                          userInfo: [NSLocalizedDescriptionKey: "input not ready (\(inFormat.sampleRate)Hz ch=\(inFormat.channelCount))"])
+        }
+        converter = AVAudioConverter(from: inFormat, to: outFormat)
         if !tapInstalled {
-            input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buf, _ in
-                guard let self = self else { return }
-                if self.tapBuffers == 0 && !self.loggedAudioOnce {
-                    State.voiceLog("first audio buffer: frames=\(buf.frameLength)")
-                    self.loggedAudioOnce = true
+            // installTap RAISES an NSException (uncatchable by Swift) when the
+            // format doesn't match the input device mid-transition. ainTry turns
+            // that into a value so we fail cleanly and the watchdog retries once
+            // the device has settled — instead of aborting the app.
+            if let ex = ainTry({
+                input.installTap(onBus: 0, bufferSize: 2048, format: inFormat) { [weak self] buf, _ in
+                    self?.feed(buf)
                 }
-                self.tapBuffers += 1
-                self.request?.append(buf)
+            }) {
+                throw NSError(domain: "ai-notify", code: 2,
+                              userInfo: [NSLocalizedDescriptionKey: "installTap: \(ex.reason ?? "NSException")"])
             }
             tapInstalled = true
         }
         engine.prepare()
         try engine.start()
         running = true
-        beginTask()
+        lastBufferAt = Date().timeIntervalSince1970
+        installRecovery()
     }
 
-    private func beginTask() {
-        guard running, let recognizer = recognizer, recognizer.isAvailable else { return }
-        State.voiceLog("task started")
-        let req = SFSpeechAudioBufferRecognitionRequest()
-        req.shouldReportPartialResults = true
-        if recognizer.supportsOnDeviceRecognition { req.requiresOnDeviceRecognition = true }
-        request = req
-        lastText = ""
-        // Tag this task with the current generation. teardownSession() bumps the
-        // generation, so a CANCELLED task's late callback (its "canceled" error)
-        // is ignored here instead of kicking off a SECOND restart chain — that
-        // duplication is what made restarts multiply into a runaway loop.
-        let gen = generation
-        // On-device continuous recognition rarely sets `isFinal` on a natural
-        // pause, so we endpoint ourselves: every partial result (re)arms a short
-        // silence timer; when it fires we treat the latest transcript as the
-        // utterance. isFinal (when it does come) finalizes immediately.
-        task = recognizer.recognitionTask(with: req) { [weak self] result, error in
-            guard let self = self else { return }
-            DispatchQueue.main.async {
-                guard self.generation == gen else { return } // stale task → ignore
-                if let result = result {
-                    let txt = result.bestTranscription.formattedString
-                    if !txt.isEmpty {
-                        self.consecutiveErrors = 0 // recognition is working
-                        if txt != self.lastText { State.voiceLog("partial: \"\(txt)\"") } // live view
-                        self.lastText = txt
-                        self.armSilence()
-                    }
-                    if result.isFinal { self.endpointUtterance() }
-                }
-                if let error = error { self.handleTaskError(error) }
+    // Arm the config-change observer + the no-audio watchdog (both idempotent).
+    private func installRecovery() {
+        if !observingConfig {
+            observingConfig = true
+            NotificationCenter.default.addObserver(
+                self, selector: #selector(audioConfigChanged),
+                name: .AVAudioEngineConfigurationChange, object: engine)
+        }
+        if watchdog == nil {
+            // Buffers arrive ~20×/sec while alive (even silence/while muted), so a
+            // multi-second gap means the tap is dead. Checked on the main runloop.
+            watchdog = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
+                guard let self = self, self.running else { return }
+                let gap = Date().timeIntervalSince1970 - self.lastBufferAt
+                if gap > 4 { self.scheduleRestart(0.0, reason: String(format: "watchdog: no audio for %.1fs", gap)) }
             }
         }
     }
 
-    // A recognition task ended with an error. Two kinds:
-    //   • Benign — "No speech detected" / "Retry": the normal way a request ends
-    //     after a stretch of silence. Just start the next one promptly; NEVER
-    //     count these (else the listener would die during normal quiet use).
-    //   • Real — e.g. "Siri and Dictation are disabled": back off (capped) and
-    //     keep retrying so it AUTO-RECOVERS once the user fixes the setting; only
-    //     log occasionally so it can't flood.
-    private func handleTaskError(_ error: Error) {
-        let ns = error as NSError
-        let msg = ns.localizedDescription.lowercased()
-        // "No speech detected" (1110), "Retry" (203), and our own cycle's
-        // "Recognition request was canceled" (216/301) are all normal — never fatal.
-        let benign = ns.code == 1110 || ns.code == 203 || ns.code == 216 || ns.code == 301
-            || msg.contains("no speech") || msg.contains("cancel")
-        teardownSession()
-        if benign { restart(after: 0.3); return }
-        consecutiveErrors += 1
-        if consecutiveErrors <= 2 { State.voiceLog("task error: \(error.localizedDescription)") }
-        else if consecutiveErrors == 3 { State.voiceLog("認識エラーが継続中（自動再試行します）。Dictation設定をご確認ください。") }
-        restart(after: Double(min(consecutiveErrors, 5))) // up to 5s; keeps retrying, never gives up
-    }
-
-    private func armSilence() {
-        silenceTimer?.invalidate()
-        // Wait this long after the transcript stops changing before treating it as
-        // a finished utterance. Long enough to ride over natural mid-sentence
-        // pauses (and the recognizer's lag) so it doesn't cut a command in half.
-        silenceTimer = Timer.scheduledTimer(withTimeInterval: 1.8, repeats: false) { [weak self] _ in
-            self?.endpointUtterance()
+    @objc private func audioConfigChanged(_ note: Notification) {
+        // Restart on main, but DELAYED: at the instant a device changes (AirPods
+        // connecting) the input format is briefly invalid, and re-reading it now
+        // would feed installTap() a bad format → NSException → abort. Waiting lets
+        // the new device settle. scheduleRestart coalesces the burst of changes.
+        DispatchQueue.main.async { [weak self] in
+            self?.scheduleRestart(0.4, reason: "audio config changed")
         }
     }
 
-    // Endpoint the current utterance: hand off the latest transcript, then cycle.
-    private func endpointUtterance() {
-        guard request != nil else { return } // already cycled
-        silenceTimer?.invalidate(); silenceTimer = nil
-        let text = lastText
-        lastText = ""
-        if !text.isEmpty { handle(text) }
-        cycleTask()
-    }
-
-    // Tear the recognition session ALL the way down. On-device recognition doesn't
-    // reliably accept a new request on the same running engine (the 2nd task goes
-    // silent), so we remove the tap and stop the engine and rebuild from scratch
-    // each utterance — reliable, at the cost of ~0.3s between utterances.
-    private func teardownSession() {
-        generation &+= 1 // invalidate any in-flight task's callbacks
-        silenceTimer?.invalidate(); silenceTimer = nil
-        task?.cancel(); task = nil
-        request?.endAudio(); request = nil
-        engine.inputNode.removeTap(onBus: 0)
-        tapInstalled = false
-        if engine.isRunning { engine.stop() }
-        tapBuffers = 0
-    }
-
-    private func restart(after delay: Double) {
-        guard running else { return }
+    // Debounced engine restart: collapses a burst of config-change events into one
+    // restart and delays it so the audio device has settled before we re-read the
+    // format. A failed restart (still settling) is retried by the watchdog.
+    private var restartPending = false
+    private func scheduleRestart(_ delay: Double, reason: String) {
+        guard running, !restartPending else { return }
+        restartPending = true
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-            guard let self = self, self.running else { return }
-            do { try self.start() } catch { State.voiceLog("restart failed: \(error.localizedDescription)") }
+            guard let self = self else { return }
+            self.restartPending = false
+            guard self.running else { return }
+            State.voiceLog("\(reason) → restarting engine")
+            self.restartEngine()
         }
     }
 
-    private func cycleTask() {
-        teardownSession()
-        restart(after: 0.3)
+    // Rebuild the engine + tap after a configuration change. CRUCIAL: create a
+    // FRESH AVAudioEngine. The old inputNode keeps reporting the PREVIOUS device's
+    // format (e.g. 96 kHz from the MacBook mic) even after stop()/start(), so
+    // installTap against the new device (AirPods, ~24 kHz) fails "format mismatch"
+    // forever — the watchdog loop you saw. A new engine reads the CURRENT hardware
+    // format cleanly. installTap is still wrapped in ainTry, so a mid-transition
+    // attempt fails cleanly and the watchdog retries rather than aborting.
+    private func restartEngine() {
+        guard running else { return }
+        if observingConfig {
+            NotificationCenter.default.removeObserver(self, name: .AVAudioEngineConfigurationChange, object: engine)
+            observingConfig = false // re-armed on the new engine by start() → installRecovery()
+        }
+        if tapInstalled { engine.inputNode.removeTap(onBus: 0); tapInstalled = false }
+        if engine.isRunning { engine.stop() }
+        engine = AVAudioEngine()
+        converter = nil
+        capturing = false; captured = []; preRoll = []; voicedSamples = 0; silentSamples = 0
+        do {
+            try start()
+            State.voiceLog("engine restarted")
+        } catch {
+            lastBufferAt = Date().timeIntervalSince1970 // grace; the watchdog retries
+            State.voiceLog("engine restart failed: \(error.localizedDescription) — will retry")
+        }
+    }
+
+    // While ai-notify is reading something aloud (it writes a "mute until" epoch-ms
+    // to mic-mute-until), drop ALL mic audio so whisper never transcribes our own
+    // speech / the agents' spoken replies. Re-read the file at most ~5×/sec.
+    private var muteUntilMs: Double = 0
+    private var muteCheckedAt: Double = 0
+    private var wasMuted = false
+    private func micMuted() -> Bool {
+        let now = Date().timeIntervalSince1970 * 1000
+        if now - muteCheckedAt > 200 {
+            muteCheckedAt = now
+            if let s = try? String(contentsOfFile: State.file("mic-mute-until"), encoding: .utf8),
+               let u = Double(s.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                muteUntilMs = u
+            } else { muteUntilMs = 0 }
+        }
+        let muted = now < muteUntilMs
+        if muted != wasMuted { wasMuted = muted; State.voiceLog(muted ? "mic muted (ai-notify speaking)" : "mic unmuted") }
+        return muted
+    }
+
+    // Downsample one input buffer to 16 kHz mono Float32, then drive the VAD.
+    private func feed(_ buf: AVAudioPCMBuffer) {
+        lastBufferAt = Date().timeIntervalSince1970 // proof the tap is alive (even while muted)
+        guard let converter = converter else { return }
+        if micMuted() {
+            // Discard audio AND any half-captured utterance so our read-aloud can't
+            // start or finish a capture; keep the noise floor from drifting on it.
+            if capturing { capturing = false; captured = []; voicedSamples = 0; silentSamples = 0; uttPeak = 0 }
+            if !preRoll.isEmpty { preRoll.removeAll() }
+            return
+        }
+        let ratio = outFormat.sampleRate / buf.format.sampleRate
+        let cap = AVAudioFrameCount(Double(buf.frameLength) * ratio + 32)
+        guard let out = AVAudioPCMBuffer(pcmFormat: outFormat, frameCapacity: cap) else { return }
+        var fed = false
+        var err: NSError?
+        converter.convert(to: out, error: &err) { _, status in
+            if fed { status.pointee = .noDataNow; return nil }
+            fed = true; status.pointee = .haveData; return buf
+        }
+        if err != nil { return }
+        let n = Int(out.frameLength)
+        guard n > 0, let ch = out.floatChannelData?[0] else { return }
+        if !loggedAudioOnce { State.voiceLog("first audio buffer: 16k frames=\(n)"); loggedAudioOnce = true }
+        var frame = [Float](repeating: 0, count: n)
+        var sum: Float = 0
+        for i in 0..<n { let v = ch[i]; frame[i] = v; sum += v * v }
+        process(frame, rms: (sum / Float(n)).squareRoot())
+    }
+
+    // Energy-VAD: collect samples from speech onset until a trailing pause, then
+    // hand the utterance off. An adaptive noise floor (updated only while idle)
+    // keeps it working across quiet rooms and noisy ones.
+    private func process(_ frame: [Float], rms: Float) {
+        let onset = max(0.010, noiseFloor * 2.8)
+        let release = max(0.005, noiseFloor * 1.4)
+        // Diagnostic: every ~3s of audio, log the loudest frame seen vs the onset
+        // level, so mic-too-quiet vs threshold-too-high is visible in voice.log.
+        dbgPeak = max(dbgPeak, rms); dbgCount += 1
+        if dbgCount >= 200 { // ~20s heartbeat (was every 3s — too noisy now tuning's done)
+            State.voiceLog(String(format: "level: peak=%.4f noiseFloor=%.4f onset=%.4f capturing=%@",
+                                  dbgPeak, noiseFloor, onset, capturing ? "yes" : "no"))
+            dbgPeak = 0; dbgCount = 0
+        }
+        if !capturing {
+            // Adapt the noise floor ONLY on genuinely quiet frames — otherwise
+            // speech inflates it and drags `onset` up above the very speech that
+            // should trigger it (a self-defeating feedback loop). Capped low.
+            if rms < 0.012 { noiseFloor = min(0.015, 0.96 * noiseFloor + 0.04 * rms) }
+            preRoll.append(contentsOf: frame)
+            if preRoll.count > preRollMax { preRoll.removeFirst(preRoll.count - preRollMax) }
+            if rms > onset {
+                capturing = true
+                captured = preRoll
+                voicedSamples = frame.count
+                silentSamples = 0
+                uttPeak = rms
+            }
+        } else {
+            captured.append(contentsOf: frame)
+            // Relative endpoint: "silent" is judged against THIS utterance's own
+            // speech level, not just the absolute floor. A fixed `release` can sit
+            // below the room's ambient (e.g. AirPods self-noise drives noiseFloor to
+            // ~0.001 so release pins to its 0.005 floor) — then trailing ambient never
+            // reads as silent and every utterance runs to the maxUtterance cap (the
+            // "20s lag" bug). Gating on a fraction of the speech peak auto-scales to
+            // any mic/room: after speech at ~0.08, a 0.006 ambient tail counts as quiet.
+            uttPeak = max(uttPeak, rms)
+            let endThresh = max(release, uttPeak * 0.18)
+            if rms > endThresh { voicedSamples += frame.count; silentSamples = 0 }
+            else { silentSamples += frame.count }
+            if silentSamples >= endpointSilence || captured.count >= maxUtterance {
+                let utt = captured
+                let voiced = voicedSamples
+                capturing = false; captured = []; preRoll = []; voicedSamples = 0; silentSamples = 0; uttPeak = 0
+                if voiced >= minVoiced { transcribe(utt) }
+            }
+        }
+    }
+
+    // Off the audio thread: WAV-encode the utterance, POST it to whisper-server,
+    // gate + reply. Serialized on `work`, so server start-up and requests can't race.
+    private func transcribe(_ samples: [Float]) {
+        let gen = generation
+        State.voiceLog(String(format: "utterance captured: %.1fs → transcribing", Double(samples.count) / 16000.0))
+        work.async { [weak self] in
+            guard let self = self else { return }
+            guard self.ensureServerReady() else { State.voiceLog("whisper-server unavailable"); return }
+            guard let text = self.serverTranscribe(self.wavData(samples))?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !text.isEmpty else { State.voiceLog("whisper: (no speech)"); return }
+            DispatchQueue.main.async {
+                guard self.running, self.generation == gen else { return }
+                self.handle(text)
+            }
+        }
+    }
+
+    // POST the WAV to the local whisper-server. Per-request `language` + `prompt`
+    // (the EXACT pane names) keep names as kana — "ジョン" not "JON" — while a
+    // clearly-English command word ("git status") still stays latin.
+    private func serverTranscribe(_ wav: Data) -> String? {
+        var body = Data()
+        let boundary = "----ainotify-boundary"
+        func field(_ name: String, _ value: String) {
+            body.append("--\(boundary)\r\nContent-Disposition: form-data; name=\"\(name)\"\r\n\r\n\(value)\r\n".data(using: .utf8)!)
+        }
+        body.append("--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"a.wav\"\r\nContent-Type: audio/wav\r\n\r\n".data(using: .utf8)!)
+        body.append(wav); body.append("\r\n".data(using: .utf8)!)
+        let lang = State.speakerLang // "ja" | "en"
+        field("language", lang)
+        field("response_format", "text")
+        // Bias decoding toward the EXACT pane names so they aren't romanized
+        // ("ジョン"→"JON"). For a Japanese speaker also seed common command verbs;
+        // for English, names only (the JP vocab would just confuse an EN model).
+        let names = State.paneNamesRaw()
+        if !names.isEmpty {
+            let prompt = lang == "ja"
+                ? names.joined(separator: "、") + "。git status、PR作成、コミット、テスト実行、許可、却下。"
+                : names.joined(separator: ", ") + "."
+            field("prompt", prompt)
+        }
+        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+
+        var req = URLRequest(url: URL(string: "http://127.0.0.1:\(port)/inference")!)
+        req.httpMethod = "POST"
+        req.timeoutInterval = 30
+        req.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        req.httpBody = body
+
+        var result: String?
+        let sem = DispatchSemaphore(value: 0)
+        URLSession.shared.dataTask(with: req) { data, _, err in
+            if let err = err { State.voiceLog("server request error: \(err.localizedDescription)") }
+            if let data = data { result = String(data: data, encoding: .utf8) }
+            sem.signal()
+        }.resume()
+        _ = sem.wait(timeout: .now() + 31)
+        // Strip whisper's bracketed non-speech tokens ([BLANK_AUDIO], (笑)).
+        return result?
+            .replacingOccurrences(of: "\\[[^\\]]*\\]", with: "", options: .regularExpression)
+            .replacingOccurrences(of: "\\([^)]*\\)", with: "", options: .regularExpression)
+    }
+
+    // Spawn whisper-server (if not already up) and wait until it answers. Reuses a
+    // server already listening on the port — including one left from a prior run —
+    // so re-enabling voice is instant. Always called on the `work` queue.
+    private func ensureServerReady() -> Bool {
+        if serverReachable() { return true }
+        if !(serverProc?.isRunning ?? false) {
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: serverBin)
+            p.arguments = ["-m", modelPath, "-l", "ja", "-t", "8", "--host", "127.0.0.1", "--port", "\(port)"]
+            p.standardOutput = Pipe(); p.standardError = Pipe()
+            do { try p.run(); serverProc = p; State.voiceLog("whisper-server starting…") }
+            catch { State.voiceLog("server spawn failed: \(error.localizedDescription)"); return false }
+        }
+        for _ in 0..<40 { // up to ~20s for the model to load
+            if serverReachable() { State.voiceLog("whisper-server ready"); return true }
+            Thread.sleep(forTimeInterval: 0.5)
+        }
+        return false
+    }
+
+    private func serverReachable() -> Bool {
+        var req = URLRequest(url: URL(string: "http://127.0.0.1:\(port)/")!)
+        req.timeoutInterval = 1.0
+        var ok = false
+        let sem = DispatchSemaphore(value: 0)
+        URLSession.shared.dataTask(with: req) { _, resp, err in ok = (err == nil && resp != nil); sem.signal() }.resume()
+        _ = sem.wait(timeout: .now() + 2)
+        return ok
+    }
+
+    // Minimal 16 kHz mono 16-bit PCM WAV in memory. Quiet utterances are gained up
+    // to a healthy peak first (this mic is low-gain), since whisper transcribes a
+    // normalized signal more accurately. Amplify only, capped, skip near-silence.
+    private func wavData(_ samples: [Float]) -> Data {
+        var peak: Float = 0
+        for f in samples { peak = max(peak, abs(f)) }
+        let gain: Float = (peak > 0.003 && peak < 0.5) ? min(0.5 / peak, 15.0) : 1.0
+        let sr: UInt32 = 16000
+        let dataSize = UInt32(samples.count * 2)
+        var d = Data(capacity: Int(dataSize) + 44)
+        func u32(_ v: UInt32) { d.append(UInt8(v & 0xff)); d.append(UInt8((v >> 8) & 0xff)); d.append(UInt8((v >> 16) & 0xff)); d.append(UInt8((v >> 24) & 0xff)) }
+        func u16(_ v: UInt16) { d.append(UInt8(v & 0xff)); d.append(UInt8((v >> 8) & 0xff)) }
+        d.append(contentsOf: Array("RIFF".utf8)); u32(36 + dataSize); d.append(contentsOf: Array("WAVE".utf8))
+        d.append(contentsOf: Array("fmt ".utf8)); u32(16); u16(1); u16(1); u32(sr); u32(sr * 2); u16(2); u16(16)
+        d.append(contentsOf: Array("data".utf8)); u32(dataSize)
+        for f in samples { u16(UInt16(bitPattern: Int16(max(-1, min(1, f * gain)) * 32767))) }
+        return d
     }
 
     func disable() {
         running = false
-        silenceTimer?.invalidate(); silenceTimer = nil
-        task?.cancel(); task = nil
-        request?.endAudio(); request = nil
+        generation &+= 1
+        watchdog?.invalidate(); watchdog = nil
+        if observingConfig {
+            NotificationCenter.default.removeObserver(self, name: .AVAudioEngineConfigurationChange, object: engine)
+            observingConfig = false
+        }
+        if tapInstalled { engine.inputNode.removeTap(onBus: 0); tapInstalled = false }
         if engine.isRunning { engine.stop() }
+        capturing = false; captured = []; preRoll = []
+        // Free the model's RAM when voice is turned off; re-enable respawns it.
+        serverProc?.terminate(); serverProc = nil
     }
 
     // A finalized utterance: forward it to `ai-notify reply` only if it names a
@@ -794,7 +1090,6 @@ final class VoiceListener: NSObject {
         if out.hasPrefix("✅") { NSSound(named: "Tink")?.play() }
     }
 }
-
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var timer: Timer?
@@ -1079,6 +1374,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let name = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         State.cli(["name-pane", tty, name.isEmpty ? "clear" : name])
     }
+
+    // Edit a pane's extra readings (aliases). Comma/space separated; empty clears.
+    @objc private func promptPaneAlias(_ sender: NSMenuItem) {
+        guard let info = sender.representedObject as? [String], let tty = info.first else { return }
+        let current = info.count > 1 ? info[1] : ""
+        let alert = NSAlert()
+        alert.messageText = "別名（エイリアス）"
+        alert.informativeText = "このペインを呼べる別の読み方。カンマ区切り（例: Paul, ぽーる）。空欄で解除。"
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
+        field.stringValue = current
+        field.placeholderString = "例: Paul, ぽーる"
+        alert.accessoryView = field
+        alert.addButton(withTitle: "保存")
+        alert.addButton(withTitle: "自動類推")   // infer from the pane's name
+        alert.addButton(withTitle: "キャンセル")
+        NSApp.activate(ignoringOtherApps: true)
+        alert.window.initialFirstResponder = field
+        let resp = alert.runModal()
+        if resp == .alertSecondButtonReturn { State.cli(["alias-pane", tty, "auto"]); return }
+        guard resp == .alertFirstButtonReturn else { return }
+        let v = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        State.cli(["alias-pane", tty, v.isEmpty ? "clear" : v])
+    }
     // identifier carries the prosody key (speed | pitch | intonation).
     @objc private func prosodyChanged(_ s: NSSlider) {
         if let key = s.identifier?.rawValue { State.cli(["voice-prosody", key, String(format: "%.3f", s.doubleValue)]) }
@@ -1213,6 +1531,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let cmd = item.representedObject as? [String] { State.cli(cmd) }
     }
 
+    // Set the speaker's voice-input language (ja|en). Persisted via the CLI so
+    // both `ai-notify reply` (romaji gating) and this app's whisper request agree.
+    @objc private func setSpeakerLang(_ item: NSMenuItem) {
+        if let code = item.representedObject as? String { State.cli(["voice-lang", code]) }
+    }
+
     // Flip the mic wake-word loop on/off. Enabling is async (permission prompts);
     // the flag is only persisted once it actually starts, and a denial shows why.
     @objc private func toggleVoiceInput(_ sender: NSMenuItem) {
@@ -1338,6 +1662,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     sub.addItem(clr)
                 }
                 sub.addItem(.separator())
+                // Per-pane aliases (extra readings: ポール / ぽーる / Paul). Lets a
+                // pane be addressed however whisper renders the spoken name.
+                let aliases = (p["aliases"] as? [String]) ?? []
+                sub.addItem(disabledHeader("別名（エイリアス）"))
+                let aliasItem = NSMenuItem(
+                    title: aliases.isEmpty ? "（クリックして追加…）" : "「\(aliases.joined(separator: "・"))」を変更…",
+                    action: #selector(promptPaneAlias(_:)), keyEquivalent: ""
+                )
+                aliasItem.target = self
+                aliasItem.representedObject = [tty, aliases.joined(separator: ", ")]
+                sub.addItem(aliasItem)
+                let aliasAuto = NSMenuItem(title: "名前から自動類推", action: #selector(runItem(_:)), keyEquivalent: "")
+                aliasAuto.target = self; aliasAuto.representedObject = ["alias-pane", tty, "auto"]
+                aliasAuto.isEnabled = !pname.isEmpty
+                sub.addItem(aliasAuto)
+                if !aliases.isEmpty {
+                    let aclr = NSMenuItem(title: "別名を解除", action: #selector(runItem(_:)), keyEquivalent: "")
+                    aclr.target = self; aclr.representedObject = ["alias-pane", tty, "clear"]
+                    sub.addItem(aclr)
+                }
+                sub.addItem(.separator())
                 // Per-pane volume.
                 let pv = (p["volume"] as? Double) ?? State.volume
                 sub.addItem(disabledHeader("音量"))
@@ -1394,6 +1739,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         voiceItem.target = self
         voiceItem.state = State.voiceInputEnabled ? .on : .off
         menu.addItem(voiceItem)
+
+        // Speaker's language — drives whisper transcription + (for ja) the romaji
+        // name matcher. A Japanese speaker wants ja; an English speaker wants en
+        // (where ja-forcing + romaji folding would just get in the way).
+        let langParent = NSMenuItem(title: "　🗣 話者の言語 / Speaker", action: nil, keyEquivalent: "")
+        let langSub = NSMenu()
+        let curLang = State.speakerLang
+        for (code, label) in [("ja", "日本語"), ("en", "English")] {
+            let it = NSMenuItem(title: label, action: #selector(setSpeakerLang(_:)), keyEquivalent: "")
+            it.target = self
+            it.representedObject = code
+            it.state = (curLang == code) ? .on : .off
+            langSub.addItem(it)
+        }
+        langParent.submenu = langSub
+        menu.addItem(langParent)
 
         menu.addItem(.separator())
         // Waiting-for-input popup: enable + when-to-show settings, all in a submenu.
