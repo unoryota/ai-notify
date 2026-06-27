@@ -4,7 +4,11 @@
 
 import { readFileSync } from 'node:fs';
 
-const SUMMARY_MAX = 140;
+// Upper bound on the agent text we keep. The spoken read-out length is governed
+// downstream by the 要約度 slider (notify.mjs); this is only a sanity ceiling so a
+// pathologically long final turn can't blow up the banner / translation. Kept
+// generous enough that "full read" (要約度 100%) and the ~20s tier are honored.
+const SUMMARY_MAX = 2000;
 
 // A genuine turn boundary: a user-role message whose content is real input
 // (a human/system prompt — string or text blocks), NOT a tool_result envelope.

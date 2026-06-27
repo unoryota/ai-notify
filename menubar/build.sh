@@ -40,6 +40,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>LSMinimumSystemVersion</key><string>11.0</string>
   <key>LSUIElement</key><true/>
   <key>NSHighResolutionCapable</key><true/>
+  <key>NSMicrophoneUsageDescription</key><string>音声で待機中のAIエージェントへ指示を出すためにマイクを使用します。</string>
+  <key>NSSpeechRecognitionUsageDescription</key><string>話しかけた指示を文字に起こし、対象のエージェントへ届けるために音声認識を使用します。</string>
 </dict>
 </plist>
 PLIST

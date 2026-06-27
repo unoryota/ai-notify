@@ -45,11 +45,15 @@ test('summarize: picks the LAST text of the current turn, not an earlier one', (
   assert.equal(summarizeTranscript(t), 'final answer');
 });
 
-test('summarize: truncates long summaries to ~140 chars', () => {
-  const long = 'あ'.repeat(300);
+test('summarize: truncates pathologically long summaries to the sanity ceiling', () => {
+  const long = 'あ'.repeat(3000);
   const out = summarizeTranscript([human('x'), assistantText(long)].join('\n'));
   assert.ok(out.endsWith('…'));
-  assert.ok(out.length <= 141);
+  assert.ok(out.length <= 2001);
+  // The ceiling is generous so the 要約度 slider — not this cap — governs read-out
+  // length; a normal multi-sentence turn must pass through untouched.
+  const normal = 'タスクが完了しました。3つのファイルを更新し、テストも通っています。次のステップを確認してください。';
+  assert.equal(summarizeTranscript([human('x'), assistantText(normal)].join('\n')), normal);
 });
 
 test('summarize: empty / unparseable input returns empty string', () => {

@@ -15,15 +15,18 @@ import {
   recordPane,
   readPaneSetting,
   setPaneWaiting,
+  readWaiting,
   readTsundereLevel,
   readVoiceProsody,
   nextCounter,
   isWarEnabled,
   readWarLevel,
+  readSummaryLevel,
 } from './state.mjs';
 import { controllingTty } from './util.mjs';
+import { parseOptions } from './route.mjs';
 import { translate } from './translate.mjs';
-import { highlightWaiting, clearHighlight } from './highlight.mjs';
+import { highlightWaiting, clearHighlight, sweepStaleHighlights } from './highlight.mjs';
 import * as voicevox from './voicevox.mjs';
 import * as tsundere from './tsundere.mjs';
 import * as war from './war.mjs';
@@ -157,17 +160,99 @@ const isJa = (s) => /[぀-ヿ㐀-鿿ｦ-ﾟ]/.test(s);
 export const joinName = (name, body) =>
   name ? `${name}${isJa(body) ? '、' : ', '}${body}` : body;
 
-// A short, speakable gist of a summary: the first sentence, capped at `max`
-// characters on a clause boundary — enough to tell which task, not a monologue.
-const shortenForSpeech = (text, max = 40) => {
-  let s = String(text).replace(/\s+/g, ' ').trim();
-  s = (s.split(/[。.!?！？\n]/)[0] || s).trim(); // first sentence
+// A speakable gist of a summary, capped at `max` characters. Packs whole
+// sentences until the budget would overflow (so a 10–20s read-out spans several
+// sentences, not just the first), then clause-cuts the remainder on a 、 / space
+// boundary. `max === Infinity` returns the whole text (要約度 100% = 全文読み上げ).
+export const shortenForSpeech = (text, max = 40) => {
+  const s = String(text).replace(/\s+/g, ' ').trim();
+  if (!Number.isFinite(max)) return s; // full read, no cap
   if (s.length <= max) return s.replace(/[、,\s]+$/, '');
-  const cut = s.slice(0, max);
+  // Split on sentence enders, KEEPING the punctuation (lookbehind) so the
+  // read-out doesn't run sentences together.
+  const sentences = s.split(/(?<=[。.!?！？])\s*/).filter(Boolean);
+  let out = '';
+  for (const sent of sentences) {
+    if (out && out.length + sent.length > max) break; // next sentence would overflow
+    out += sent;
+    if (out.length >= max) break;
+  }
+  if (!out) out = sentences[0] || s; // even the first sentence overflows → clause-cut it
+  if (out.length <= max) return out.replace(/[、,\s]+$/, '').trim();
+  const cut = out.slice(0, max);
   const ten = cut.lastIndexOf('、'); // prefer a clause boundary
   const sep = ten > max * 0.4 ? ten : cut.lastIndexOf(' ');
   return (sep > 0 ? cut.slice(0, sep) : cut).replace(/[、,\s]+$/, '').trim();
 };
+
+// Map the 要約度 slider (0–1) to a spoken-text character budget. The anchors are
+// pinned to an approximate spoken DURATION (≈7.5 Japanese chars/sec for both
+// `say` and VOICEVOX at normal speed):
+//   0      → 0        (MIN: 効果音のみ・読み上げなし)
+//   0.10   → ~1–2秒    (≈12 chars)
+//   0.25   → ~5秒      (≈38 chars)
+//   0.50   → ~10秒     (≈75 chars)
+//   0.90   → ~20秒     (≈150 chars)
+//   1.00   → Infinity (要約せず全文読み上げ)
+// Between anchors it interpolates linearly. Returns 0 to mean "do not speak".
+export const summaryMaxChars = (level) => {
+  const lv = Math.min(1, Math.max(0, Number(level)));
+  if (lv <= 0) return 0; // 効果音のみ
+  if (lv >= 1) return Infinity; // 全文
+  const anchors = [
+    [0, 4],
+    [0.1, 12],
+    [0.25, 38],
+    [0.5, 75],
+    [0.9, 150],
+    [1, 220],
+  ];
+  for (let i = 1; i < anchors.length; i++) {
+    const [x0, y0] = anchors[i - 1];
+    const [x1, y1] = anchors[i];
+    if (lv <= x1) return Math.round(y0 + ((y1 - y0) * (lv - x0)) / (x1 - x0));
+  }
+  return 220;
+};
+
+// Resolve the effective 要約度 level (0–1), most-specific source first:
+//   $AI_NOTIFY_SUMMARY_LEVEL (per window) > per-pane `summary` > the slider file >
+//   legacy config (speakAgentMessage / summaryLevel) > 0.25 default (~5s, the
+//   historical first-sentence read-out).
+export const effectiveSummaryLevel = (config = {}, pane = {}) => {
+  const clamp01 = (v) => Math.min(1, Math.max(0, v));
+  const env = parseFloat(process.env.AI_NOTIFY_SUMMARY_LEVEL);
+  if (Number.isFinite(env)) return clamp01(env);
+  if (typeof pane.summary === 'number') return clamp01(pane.summary);
+  const f = readSummaryLevel();
+  if (f != null) return f;
+  if (typeof config.summaryLevel === 'number') return clamp01(config.summaryLevel);
+  if (config.speakAgentMessage) return 1; // legacy "read the whole thing"
+  return 0.25;
+};
+
+// Selectable choices for a waiting event, so a spoken reply can pick one and the
+// read-out can announce them. Priority: choices the agent itself enumerated in
+// its message ("A: … B: …"), then a known template per event kind. Each option's
+// `keys`/`text` is exactly what tmux injects when chosen (see route.mjs). Returns
+// null when there's nothing pickable (e.g. a free idle prompt → just dictate).
+//
+//   permission_prompt → A 許可 (Enter = accept the highlighted default / Yes),
+//                       B 拒否 (Escape = cancel the prompt / No).
+export const optionsForWaiting = (kind, message) => {
+  const parsed = parseOptions(message);
+  if (parsed) return parsed;
+  if (kind === 'permission')
+    return [
+      { key: 'A', label: '許可', keys: ['Enter'] },
+      { key: 'B', label: '拒否', keys: ['Escape'] },
+    ];
+  return null;
+};
+
+// A short spoken hint listing the choices: "A 許可、B 拒否".
+const announceOptions = (options) =>
+  options.map((o) => `${o.key} ${o.label}`).join('、');
 
 // Public entry. Called by the hook handler with already-parsed fields.
 // `alert` (default true) gates whether this event actually makes noise — sound,
@@ -175,7 +260,7 @@ const shortenForSpeech = (text, max = 40) => {
 // still keeps the pane/waiting state correct (so a suppressed "done" still clears
 // a popup), it just stays silent. The hook decides `alert` from the per-kind
 // notification toggles.
-export const emit = ({ provider = 'default', event = 'done', label = '', message = '', alert = true }) => {
+export const emit = ({ provider = 'default', event = 'done', label = '', message = '', alert = true, kind = '' }) => {
   const config = readConfig();
   // Volume 0 is silence just like an explicit mute, so it suppresses the spoken
   // read-out AND the desktop banner (an un-muted banner would leak macOS's own
@@ -206,23 +291,41 @@ export const emit = ({ provider = 'default', event = 'done', label = '', message
   // Translation lowercases product names ("Claude" -> "claude"); restore the
   // well-known agent names so banners and read-outs read correctly.
   fullBody = restoreAgentNames(fullBody);
-  // Spoken read-out — short enough not to get cut off, but enough to identify
-  // WHICH task: the window label + a short gist of what happened (the first
-  // clause of the summary). speakAgentMessage:true reads the whole thing.
-  let spokenBody;
-  if (!message) spokenBody = fromTemplate || fallback;
-  else if (config.speakAgentMessage) spokenBody = fullBody;
-  else spokenBody = shortenForSpeech(fullBody, config.speakMaxChars || 40);
-  // Per-pane settings (voice / volume / tsundere / name), keyed by tty. Read
-  // here — before the read-out is assembled — so the spoken text can use this
-  // pane's assigned name. Also remember the pane so the menu bar can list it.
+  // Per-pane settings (voice / volume / tsundere / summary / name), keyed by
+  // tty. Read here so the spoken text can use this pane's assigned name + 要約度.
+  // Also remember the pane so the menu bar can list it.
   const tty = controllingTty();
   recordPane(tty, label);
   // waiting -> yellow menu bar status (+ the popup); done clears it. A suppressed
   // (alert=false) waiting must NOT light up the popup, so only set it when alert.
   // "done" always clears regardless of alert. Pass the reason text for filtering.
-  setPaneWaiting(tty, event === 'waiting' && alert, event === 'waiting' ? message || fromTemplate : '');
+  // Also persist the selectable options (if any) so `ai-notify reply` can map a
+  // spoken "Aを実行" to the right keystroke without re-deriving them.
+  const waitingOptions = event === 'waiting' ? optionsForWaiting(kind, message) : null;
+  setPaneWaiting(
+    tty,
+    event === 'waiting' && alert,
+    event === 'waiting' ? message || fromTemplate : '',
+    waitingOptions
+  );
   const pane = readPaneSetting(tty);
+
+  // Spoken read-out length is driven by the 要約度 slider: MIN = silent (効果音のみ),
+  // higher = a longer summary, MAX = the whole message. summaryMaxChars maps the
+  // 0–1 level to a character budget (0 = do not speak, Infinity = full read).
+  const summaryLevel = effectiveSummaryLevel(config, pane);
+  const summaryMax = summaryMaxChars(summaryLevel);
+  const speakEnabled = summaryMax > 0; // false at MIN → only the notification sound
+  let spokenBody;
+  if (!message) spokenBody = fromTemplate || fallback;
+  else if (summaryMax === Infinity) spokenBody = fullBody;
+  else spokenBody = shortenForSpeech(fullBody, summaryMax);
+  // When voice reply is on, read the choices aloud after the summary so the user
+  // knows what to say back ("…。A 許可、B 拒否"). Appended AFTER the 要約度 cut so
+  // the options are never the part that gets truncated. Default off (opt-in).
+  if (config.voiceReply?.enabled && config.voiceReply?.announceOptions !== false && waitingOptions) {
+    spokenBody = `${spokenBody}。${announceOptions(waitingOptions)}`;
+  }
 
   // Name this pane in the read-out, most-reliable identity first:
   //   1. $AI_NOTIFY_LABEL — set in the pane's shell, inherited by the hook even
@@ -324,7 +427,8 @@ export const emit = ({ provider = 'default', event = 'done', label = '', message
 
   if (alert && !muted) {
     playSound(soundName, outVol);
-    if (config.speak && outVol > 0) {
+    // speakEnabled is false at 要約度 MIN → the sound above still fires, but no read-out.
+    if (config.speak && outVol > 0 && speakEnabled) {
       let spoken = false;
       if (tts === 'voicevox') {
         // Base prosody: global, with this pane's per-pane overrides on top.
@@ -367,5 +471,13 @@ export const emit = ({ provider = 'default', event = 'done', label = '', message
     } catch {
       /* visual is best-effort */
     }
+  }
+  // Always sweep stale highlights (even when alert/highlight is off, to mop up
+  // leftovers): any pane WE tinted that is no longer waiting gets reset, so an
+  // agent that exited without a clean 'done' never leaves an idle shell amber.
+  try {
+    sweepStaleHighlights(Object.keys(readWaiting()));
+  } catch {
+    /* best-effort */
   }
 };
