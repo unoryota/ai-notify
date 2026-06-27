@@ -5,11 +5,12 @@
 // never errors — it just does what it can.
 
 import { spawn, execFileSync } from 'node:child_process';
-import { existsSync, rmSync } from 'node:fs';
+import { existsSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   isMuted,
+  stateDir,
   readConfig,
   readVolume,
   recordPane,
@@ -46,6 +47,28 @@ const which = (bin) =>
   (process.env.PATH || '')
     .split(':')
     .some((dir) => dir && existsSync(`${dir}/${bin}`));
+
+// Tell the voice listener (Swift menu bar) to IGNORE the mic while ai-notify is
+// talking, so whisper doesn't transcribe our own read-aloud and the agents'
+// spoken replies back into commands. We write a "mute until" epoch-ms to a state
+// file; the listener drops all audio until then. `say`/VOICEVOX run async (fire-
+// and-forget), so we ESTIMATE the spoken duration from the text length plus a
+// generous echo tail, and never SHORTEN an existing (longer) mute window.
+const micMuteFile = () => join(stateDir(), 'mic-mute-until');
+const muteMicForText = (text) => {
+  try {
+    // ~120ms per character (Japanese `say`/VOICEVOX with prosody pauses) + a
+    // 700ms tail for speaker reverberation; capped so a long blurb can't wedge
+    // the mic shut for too long.
+    const ms = Math.min(25000, 700 + String(text || '').length * 120);
+    const until = Date.now() + ms;
+    let cur = 0;
+    try { cur = Number(readFileSync(micMuteFile(), 'utf8')) || 0; } catch { /* none yet */ }
+    writeFileSync(micMuteFile(), String(Math.max(cur, until)));
+  } catch {
+    /* best-effort; never block a notification on this */
+  }
+};
 
 // Resolve a configured sound name to something the OS can play.
 const resolveSound = (name) => {
@@ -446,6 +469,7 @@ export const emit = ({ provider = 'default', event = 'done', label = '', message
     playSound(soundName, outVol);
     // speakEnabled is false at 要約度 MIN → the sound above still fires, but no read-out.
     if (config.speak && outVol > 0 && speakEnabled) {
+      muteMicForText(outText); // don't let whisper transcribe our own read-aloud
       let spoken = false;
       if (tts === 'voicevox') {
         // Base prosody: global, with this pane's per-pane overrides on top.

@@ -452,6 +452,10 @@ export const DEFAULT_CONFIG = {
   // the menu bar's mic loop and `ai-notify reply` honor it. `announceOptions`
   // reads the selectable choices aloud after a waiting notification.
   voiceReply: { enabled: false, announceOptions: true },
+  // Speaker's spoken language for voice INPUT: 'ja' or 'en'. Drives whisper's
+  // transcription language AND the romaji-fold name matcher (which helps Japanese
+  // — whisper romanizes kana names — but mangles English). Default Japanese.
+  speakerLang: 'ja',
   // LEGACY read-out-length knobs, now superseded by the 要約度 slider (see
   // readSummaryLevel / notify.mjs summaryMaxChars). They survive only as a
   // fallback when no 要約度 has ever been set: speakAgentMessage:true maps to a

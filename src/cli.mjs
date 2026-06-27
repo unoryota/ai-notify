@@ -16,6 +16,7 @@ import * as tsundere from './tsundere.mjs';
 import * as war from './war.mjs';
 import { lastAssistantText } from './transcript.mjs';
 import { resolveCommand, parseOptions } from './route.mjs';
+import { inferAliases } from './aliases.mjs';
 import * as tmux from './tmux.mjs';
 import {
   isMuted,
@@ -714,6 +715,53 @@ const cmds = {
     log(`pane ${tty}: name ${arg}`);
   },
 
+  // Set a pane's extra READINGS (aliases) from the menu bar, keyed by tty.
+  //   alias-pane <tty> <a,b,c>   set explicit readings
+  //   alias-pane <tty> auto      auto-infer from the pane's name (ポール/ぽーる/Paul)
+  //   alias-pane <tty> clear     remove all
+  'alias-pane'() {
+    const [tty, ...rest] = positionals;
+    const arg = rest.join(' ').trim();
+    if (!tty) {
+      console.error('usage: alias-pane <tty> <a,b,c|auto|clear>');
+      process.exit(1);
+    }
+    if (arg === '' || arg === 'clear') {
+      updatePaneSetting(tty, { aliases: null });
+      return log(`pane ${tty}: aliases cleared`);
+    }
+    const primary = readPaneSetting(tty).speakName || '';
+    const seen = new Set([primary]);
+    let list;
+    if (arg === 'auto') {
+      list = inferAliases(primary);
+    } else {
+      list = arg
+        .split(/[,、\s]+/)
+        .map((x) => x.trim())
+        .filter((x) => x && !seen.has(x) && seen.add(x));
+    }
+    updatePaneSetting(tty, { aliases: list.length ? list : null });
+    log(`pane ${tty}: aliases ${list.length ? list.join('/') : '(none)'}`);
+  },
+
+  // Set (or show) the speaker's language for voice INPUT — 'ja' or 'en'. Drives
+  // whisper transcription + the romaji name matcher. The menu bar reads/writes
+  // this via State.cli(["voice-lang", ...]).
+  //   voice-lang [ja|en]
+  'voice-lang'() {
+    const config = readConfig();
+    const arg = (positionals[0] || '').toLowerCase();
+    if (!arg) return log(`speaker language: ${config.speakerLang || 'ja'}`);
+    if (arg !== 'ja' && arg !== 'en') {
+      console.error('usage: voice-lang [ja|en]');
+      process.exit(1);
+    }
+    config.speakerLang = arg;
+    writeConfig(config);
+    log(`speaker language: ${arg}`);
+  },
+
   // One-shot per-pane setup, run INSIDE the pane: set its spoken name, voice,
   // and volume — and rename the terminal tab — in a single command, instead of
   // doing each from the menu bar. Keyed by this shell's tty (which the agent's
@@ -727,26 +775,48 @@ const cmds = {
       console.error('`ai-notify use` must run inside a terminal pane (no controlling tty found).');
       process.exit(1);
     }
-    // Pull --tab and its value out first, so the tab title (any token) is never
-    // mistaken for the voice or volume positional.
+    // Pull --tab / --alias and their values out first, so the value (any token) is
+    // never mistaken for the voice or volume positional.
     const rest = args.slice(1);
     let tabTitle;
+    let aliasArg;
     const pos = [];
     for (let i = 0; i < rest.length; i++) {
       if (rest[i] === '--tab') {
         if (rest[i + 1] && !rest[i + 1].startsWith('--')) tabTitle = rest[++i];
         continue;
       }
+      if (rest[i] === '--alias' || rest[i] === '--aka') {
+        if (rest[i + 1] !== undefined && !rest[i + 1].startsWith('--')) aliasArg = rest[++i];
+        else aliasArg = ''; // bare flag = clear the aliases
+        continue;
+      }
       if (!rest[i].startsWith('--')) pos.push(rest[i]);
     }
+    // Comma/space-separated extra readings → a clean, deduped list (sans the primary).
+    const parseAliases = (s, primary) => {
+      const seen = new Set([primary]);
+      return String(s || '')
+        .split(/[,、\s]+/)
+        .map((x) => x.trim())
+        .filter((x) => x && !seen.has(x) && seen.add(x));
+    };
     const [name, voiceArg, volArg] = pos;
     if (!name || name === 'clear' || name === 'reset') {
-      updatePaneSetting(tty, { speakName: null, tts: null, voice: null, speaker: null, volume: null });
+      updatePaneSetting(tty, { speakName: null, tts: null, voice: null, speaker: null, volume: null, aliases: null });
       process.stdout.write('\u001b]0;\u0007\u001b]2;\u0007'); // clear tab title via OSC 0 + 2 (best-effort)
       return log(`✓ pane reset (${tty})`);
     }
 
     const patch = { speakName: name };
+    // --alias given → use it verbatim (bare flag clears). No --alias → AUTO-INFER
+    // plausible readings ("Paul" → ポール/ぽーる) so the pane answers to all of them
+    // without the user spelling each out.
+    if (aliasArg !== undefined) patch.aliases = aliasArg === '' ? null : parseAliases(aliasArg, name);
+    else {
+      const inferred = inferAliases(name);
+      if (inferred.length) patch.aliases = inferred;
+    }
     let voiceLabel = '';
     if (voiceArg !== undefined) {
       const vv = /^(?:vv|voicevox):?(\d+)$/i.exec(voiceArg);
@@ -791,6 +861,7 @@ const cmds = {
     process.stdout.write(`\u001b]0;${tab}\u0007\u001b]2;${tab}\u0007`);
 
     const bits = [`name ${name}`];
+    if (Array.isArray(patch.aliases) && patch.aliases.length) bits.push(`aka ${patch.aliases.join('/')}`);
     if (voiceLabel) bits.push(`voice ${voiceLabel}`);
     if (patch.volume !== undefined) bits.push(`volume ${patch.volume}`);
     bits.push(`tab ${tab}`);
@@ -819,20 +890,33 @@ const cmds = {
     const settings = readAllPaneSettings(); // { tty: {speakName,...} }
     const labels = Object.fromEntries(readPanes().map((p) => [p.tty, p.label]));
     const ttys = new Set([...Object.keys(waiting), ...Object.keys(settings), ...Object.keys(labels)]);
-    const panes = [...ttys].map((tty) => {
+    // One pane can answer to SEVERAL readings (ポール / ぽーる / Paul): whisper may
+    // render the same name in kana OR latin depending on how it's pronounced, and
+    // a romaji fold can't bridge e.g. "Paul"→ポール. So we expose the pane once per
+    // reading — each as its own named entry pointing at the SAME tty — and let the
+    // (untouched) matcher pick whichever the speaker used. resolveCommand only
+    // acts on an explicit wake-word + name, so duplicate ttys never cause a false
+    // "ambiguous" (there's no count-based fallback to confuse).
+    const panes = [...ttys].flatMap((tty) => {
       const msg = waiting[tty]?.msg || '';
-      return {
+      const base = {
         tty,
-        name: settings[tty]?.speakName || labels[tty] || '',
         waiting: !!waiting[tty],
         msg,
         // Prefer the options persisted at notify time (they carry the right
         // keystroke per choice); fall back to parsing the message text.
         options: waiting[tty]?.options || parseOptions(msg),
       };
+      const primary = settings[tty]?.speakName || labels[tty] || '';
+      const aliases = Array.isArray(settings[tty]?.aliases) ? settings[tty].aliases : [];
+      const forms = [...new Set([primary, ...aliases].filter(Boolean))];
+      return forms.length ? forms.map((name) => ({ ...base, name })) : [{ ...base, name: '' }];
     });
 
-    const d = resolveCommand(text, panes);
+    // Romaji folding (whisper romanizes Japanese names) helps a Japanese speaker
+    // but mangles an English one — gate it on the configured speaker language.
+    const lang = readConfig().speakerLang || 'ja';
+    const d = resolveCommand(text, panes, { romaji: lang === 'ja' });
     if (!d.ok) {
       log(`🤔 ${d.reason}`);
       process.exit(2);
@@ -1065,6 +1149,7 @@ const cmds = {
         label: recorded.get(tty) || tty.replace('/dev/', ''),
         current: labelFor(s.tts ? s : null),
         speakName: typeof s.speakName === 'string' ? s.speakName : '',
+        aliases: Array.isArray(s.aliases) ? s.aliases : [],
         volume: typeof s.volume === 'number' ? s.volume : globalVol,
         volumeSet: typeof s.volume === 'number',
         tsundere: typeof s.tsundere === 'number' ? s.tsundere : tsLevel,
@@ -1321,8 +1406,9 @@ function printHelp() {
 Usage:
   ai-notify init [--dry-run] [--only claude,codex,gemini]   wire detected agents
   ai-notify uninstall [--only ...]                   remove wiring
-  ai-notify use <name> [voice] [vol] [--tab <t>]     name THIS pane + voice + tab, at once (voice: Kyoko | 3 | ずんだもん | vv3)
+  ai-notify use <name> [voice] [vol] [--tab <t>] [--alias a,b]   name THIS pane + voice + tab (--alias: extra readings, e.g. ポール --alias Paul,ぽーる)
   ai-notify reply "<text>" [--dry-run] [--explain]   音声入力で待機中エージェントへ指示 (要 tmux): "ずんだもんアルファ、Aを実行"
+  ai-notify voice-lang [ja|en]                       話者の言語を設定 (ja=ローマ字補正ON / en=OFF)
   ai-notify toggle | on | off | status               control the mute switch
   ai-notify volume [0.0-2.0]                          get/set output volume
   ai-notify summary [0.0-1.0]                         要約度: 0=効果音のみ … 0.5=10秒 … 1=全文読み上げ

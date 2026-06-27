@@ -25,8 +25,109 @@ const kataToHira = (s) => s.replace(/[ァ-ヶ]/g, (c) => String.fromCharCode(c.c
 // (NFD splits a voiced kana into base + combining mark; we delete the mark.)
 // Finally fold katakana→hiragana and lowercase Latin. The COMMAND text keeps its
 // voicing — only matching is fuzzed (sanitize() works off the original).
-const VOICING = /[\u3099\u309A\u309B\u309C\uFF9E\uFF9F]/g;
-const norm = (s) =>
+const VOICING = /[゙゚゛゜ﾞﾟ]/g;
+const PUNCT = /[\s、。，．.,!！?？「」『』（）()・:：;；]/;
+
+// Per-character fold for NON-Latin text: drop punctuation, strip voicing marks,
+// katakana→hiragana, lowercase. Latin is folded separately by the romaji table.
+const normChar = (ch) => {
+  const c = ch.normalize('NFKC');
+  if (PUNCT.test(c)) return '';
+  return kataToHira(c.normalize('NFD').replace(VOICING, '')).normalize('NFC').toLowerCase();
+};
+
+// Romaji → hiragana, so whisper's English spelling of a Japanese name folds to the
+// SAME kana as the pane name: "John"/"Jon" → じょん == "ジョン". Speech recognition
+// romanizes a name when an English command follows it ("Hey John Git status…"),
+// which otherwise misses the wake gate entirely. Greedy longest-match; L→R; a lone
+// leftover consonant (the silent "h" in "John") is skipped.
+// prettier-ignore
+const ROMAJI = {
+  a:'あ',i:'い',u:'う',e:'え',o:'お',
+  ka:'か',ki:'き',ku:'く',ke:'け',ko:'こ', ga:'が',gi:'ぎ',gu:'ぐ',ge:'げ',go:'ご',
+  sa:'さ',si:'し',shi:'し',su:'す',se:'せ',so:'そ', za:'ざ',zi:'じ',ji:'じ',zu:'ず',ze:'ぜ',zo:'ぞ',
+  ta:'た',ti:'ち',chi:'ち',tu:'つ',tsu:'つ',te:'て',to:'と', da:'だ',de:'で',do:'ど',
+  na:'な',ni:'に',nu:'ぬ',ne:'ね',no:'の', ha:'は',hi:'ひ',fu:'ふ',hu:'ふ',he:'へ',ho:'ほ',
+  ba:'ば',bi:'び',bu:'ぶ',be:'べ',bo:'ぼ', pa:'ぱ',pi:'ぴ',pu:'ぷ',pe:'ぺ',po:'ぽ',
+  ma:'ま',mi:'み',mu:'む',me:'め',mo:'も', ya:'や',yu:'ゆ',yo:'よ',
+  ra:'ら',ri:'り',ru:'る',re:'れ',ro:'ろ', la:'ら',li:'り',lu:'る',le:'れ',lo:'ろ',
+  wa:'わ',wo:'を',vu:'ぶ',n:'ん',
+  kya:'きゃ',kyu:'きゅ',kyo:'きょ', sha:'しゃ',shu:'しゅ',sho:'しょ', sya:'しゃ',syu:'しゅ',syo:'しょ',
+  cha:'ちゃ',chu:'ちゅ',cho:'ちょ', ja:'じゃ',ju:'じゅ',jo:'じょ',jya:'じゃ',jyu:'じゅ',jyo:'じょ',
+  nya:'にゃ',nyu:'にゅ',nyo:'にょ', hya:'ひゃ',hyu:'ひゅ',hyo:'ひょ', mya:'みゃ',myu:'みゅ',myo:'みょ',
+  rya:'りゃ',ryu:'りゅ',ryo:'りょ', gya:'ぎゃ',gyu:'ぎゅ',gyo:'ぎょ',
+  bya:'びゃ',byu:'びゅ',byo:'びょ', pya:'ぴゃ',pyu:'ぴゅ',pyo:'ぴょ',
+};
+// Unvoice every romaji output to match the voicing-STRIPPED kana side (normChar
+// folds じ→し, ぎ→き …), so "jo"→じょ→しょ aligns with "ジョン"→しょん. Without this
+// the romaji key would stay voiced and never match. Char count is preserved, so
+// foldWithEnds' index map stays aligned.
+for (const k of Object.keys(ROMAJI)) ROMAJI[k] = normChar(ROMAJI[k]);
+
+// Fold a string to a hiragana match-key AND, for each output char, the index in
+// the (NFKC) source just past the char(s) that produced it — so the command after
+// a matched name can be sliced from the ORIGINAL text (the fold is lossy).
+const foldWithEnds = (original, romaji = true) => {
+  const src = [...String(original || '').normalize('NFKC')];
+  let folded = '';
+  const ends = [];
+  const emit = (str, end) => {
+    for (const c of str) {
+      folded += c;
+      ends.push(end);
+    }
+  };
+  let i = 0;
+  while (i < src.length) {
+    if (romaji && /[a-zA-Z]/.test(src[i])) {
+      let j = i;
+      let run = '';
+      while (j < src.length && /[a-zA-Z]/.test(src[j])) run += src[j++];
+      run = run.toLowerCase();
+      const startLen = folded.length;
+      let k = 0;
+      while (k < run.length) {
+        let hit = '';
+        let len = 0;
+        for (let L = Math.min(3, run.length - k); L >= 1; L--) {
+          if (ROMAJI[run.slice(k, k + L)]) {
+            hit = ROMAJI[run.slice(k, k + L)];
+            len = L;
+            break;
+          }
+        }
+        if (len) {
+          emit(hit, i + k + len);
+          k += len;
+        } else {
+          k += 1; // lone consonant (e.g. the "h" in "john") → skip
+        }
+      }
+      // A TRAILING unmapped consonant (the "l" in "Paul") emits nothing, so the
+      // last syllable's end stops before it and that letter leaks into the command
+      // ("…run test" → "l, run test"). Pin the last folded char of this run to the
+      // run's end so the whole latin token is consumed. (Mid-word skips like the
+      // "h" in "john" already end at the next syllable, so this is a no-op there.)
+      if (folded.length > startLen) ends[folded.length - 1] = j;
+      i = j;
+    } else {
+      // Non-Latin, OR Latin when romaji folding is OFF (English speaker): keep the
+      // character as-is (lowercased), 1:1. English names match directly then, and
+      // the romaji fold ("John"→じょん) doesn't get in the way.
+      emit(romaji ? normChar(src[i]) : src[i].normalize('NFKC').toLowerCase().replace(PUNCT, ''), i + 1);
+      i += 1;
+    }
+  }
+  return { folded, ends };
+};
+
+const norm = (s, romaji = true) => foldWithEnds(s, romaji).folded;
+
+// Like norm() but WITHOUT romaji folding — Latin stays Latin. Used for matching
+// the command keywords AFTER the name (option letters "A", affirmations "yes/go",
+// kana readings). Romaji-folding those would collapse e.g. "go"→ご→こ and then any
+// command starting with こ ("コミット") would falsely read as 承認.
+const normLite = (s) =>
   kataToHira(
     String(s || '')
       .normalize('NFKC')
@@ -41,35 +142,24 @@ const norm = (s) =>
 // FRONT before we look for the address, so the name is matched as a prefix.
 // Includes "はい" because speech recognition often hears "へい" as "はい"; at the
 // FRONT it's always a wake word (an affirmation only ever follows a name).
-const WAKE = ['へい', 'はい', 'ねえ', 'ねぇ', 'おーい', 'おい', 'おっす', 'hey', 'ok'];
+// "へい/えい/うぇい" are all how whisper renders a spoken "Hey" (it flips between
+// ヘイ / エイ / ウェイ by pronunciation); keep them in sync with the menu bar's
+// wake list (utteranceAddressesPane in AiNotifyMenuBar.swift).
+const WAKE = ['へい', 'えい', 'うぇい', 'はい', 'ねえ', 'ねぇ', 'おーい', 'おい', 'おっす', 'hey', 'ok'];
 
 // Return the ORIGINAL substring that follows `normName` (a normalized name), with
-// the original spacing/case preserved — norm() is lossy (drops spaces), so we
-// can't slice the normalized string for free-form dictation. We re-normalize the
-// original char by char, mapping each normalized position back to an original
-// index, then cut after the name. Returns null if the name isn't present.
-const afterName = (original, normName) => {
+// the original spacing/case preserved — norm() is lossy (drops spaces, folds
+// romaji), so we can't slice the normalized string for free-form dictation.
+// foldWithEnds gives both the match-key AND a position map back to the source, so
+// we find the name in the key and cut the source right after it. Returns null if
+// the name isn't present. (The source is NFKC, matching foldWithEnds.)
+const afterName = (original, normName, romaji = true) => {
   if (!normName) return original;
-  // Compose first (NFC): speech recognition emits voiced kana decomposed
-  // (シ + ゛ instead of ジ). norm() folds the WHOLE string at once so it still
-  // finds the name, but this per-character loop can't compose a base+combining
-  // pair that spans two iterations — leaving an orphaned ゛ that hides the name
-  // and makes afterName return null (→ empty command). Pre-composing aligns the
-  // two so the name is found whether dictated or typed.
-  const composed = original.normalize('NFC');
-  const chars = [...composed];
-  let normStr = '';
-  const endIdx = []; // endIdx[k] = original index just past the char that produced normStr[k]
-  for (let i = 0; i < chars.length; i++) {
-    const nc = norm(chars[i]);
-    for (let j = 0; j < nc.length; j++) {
-      normStr += nc[j];
-      endIdx.push(i + 1);
-    }
-  }
-  const pos = normStr.indexOf(normName);
+  const composed = String(original).normalize('NFKC');
+  const { folded, ends } = foldWithEnds(composed, romaji);
+  const pos = folded.indexOf(normName);
   if (pos < 0) return null;
-  return composed.slice(endIdx[pos + normName.length - 1]);
+  return composed.slice(ends[pos + normName.length - 1]);
 };
 
 // Strip control chars and collapse whitespace for anything we type into a shell.
@@ -104,7 +194,7 @@ const leadingOption = (rest) => {
   return null;
 };
 
-const matchesAny = (rest, words) => words.some((w) => rest.startsWith(norm(w)));
+const matchesAny = (rest, words) => words.some((w) => rest.startsWith(normLite(w)));
 
 // Light parser for explicit "A: … / B: …" or "1. … / 2) …" menus that some
 // agents put right in the notification text. Returns [{key,label}] or null.
@@ -134,73 +224,59 @@ const ok = (pane, d) => ({
 
 // Main entry. `panes` is the normalized pane list; `opts.minConfidence` lets the
 // caller treat low-confidence reads as "ask again" instead of acting.
-export function resolveCommand(spokenText, panes = []) {
+export function resolveCommand(spokenText, panes = [], opts = {}) {
+  // romaji fold (whisper romanizes Japanese names) helps a JAPANESE speaker but
+  // mangles an English one — gate it on the speaker's language (default: on/JA).
+  const romaji = opts.romaji !== false;
+  const nm = (s) => norm(s, romaji);
   const text = String(spokenText || '').trim();
   if (!text) return fail('empty', '何も聞き取れませんでした');
-  const n = norm(text);
+  const n = nm(text);
 
   // 1. Pick the target pane. People address a pane the way they'd address a
-  //    person: "(へい) <name>, <command>" — the name comes FIRST. So strip a
-  //    leading wake word and match a pane name as a PREFIX of what's left
-  //    (longest first, so "ずんだもんアルファ" beats "ずんだもん"). This stops a
-  //    command that happens to contain another pane's name (e.g. "…本番環境ヘルス
-  //    チェック") from hijacking the routing. Only if nothing matches at the front
-  //    do we fall back to a name appearing anywhere, then a sole waiting/only pane.
-  const named = panes.filter((p) => p.name && norm(p.name));
-  const byLen = [...named].sort((a, b) => norm(b.name).length - norm(a.name).length);
-  let addr = n;
+  //    person: "へい <name>, <command>" — a WAKE WORD, then the name.
+  //
+  //    The wake word is REQUIRED. Always-on mic means the system also hears
+  //    ambient talk AND ai-notify's own read-aloud / the agents' spoken replies
+  //    (picked up from the speakers). Acting on any utterance that merely contains
+  //    a pane name — or worse, falling back to "the only waiting pane" with no name
+  //    at all — let that audio inject itself back into a pane ("完了しました" looping).
+  //    Demanding "へい" up front, which neither ambient speech nor TTS produces,
+  //    is the gate that stops the feedback loop. No wake word → we never act.
+  const named = panes.filter((p) => p.name && nm(p.name));
+  const byLen = [...named].sort((a, b) => nm(b.name).length - nm(a.name).length);
+  let addr = null;
   for (const w of WAKE) {
-    const nw = norm(w);
-    if (nw && addr.startsWith(nw)) {
-      addr = addr.slice(nw.length);
+    const nw = nm(w);
+    if (nw && n.startsWith(nw)) {
+      addr = n.slice(nw.length);
       break;
     }
   }
+  if (addr === null) return fail('no-wake', '「ヘイ」と名前で呼びかけてください（例:「ヘイ ポール、…」）');
+
+  // The name must come right after the wake word (longest name first, so
+  // "ずんだもんアルファ" beats "ずんだもん").
   let target = null;
   let nameHit = '';
   for (const p of byLen) {
-    const nn = norm(p.name);
+    const nn = nm(p.name);
     if (nn && addr.startsWith(nn)) {
       target = p;
       nameHit = nn;
       break;
     }
   }
-  if (!target) {
-    // Fallback: a name mentioned anywhere in the utterance.
-    for (const p of byLen) {
-      const nn = norm(p.name);
-      if (nn && n.includes(nn)) {
-        target = p;
-        nameHit = nn;
-        break;
-      }
-    }
-  }
-  let confidence = 0.9;
-  if (!target) {
-    const waiting = panes.filter((p) => p.waiting);
-    if (waiting.length === 1) {
-      target = waiting[0];
-      confidence = 0.6;
-    } else if (panes.length === 1) {
-      target = panes[0];
-      confidence = 0.55;
-    } else {
-      const names = waiting.map((p) => p.name || p.tty).filter(Boolean);
-      if (waiting.length > 1)
-        return fail('ambiguous', `どの端末か特定できません（待機中: ${names.join('、')}）`);
-      return fail('no-target', '対象の端末が見つかりません。名前を付けて指示してください');
-    }
-  }
+  if (!target) return fail('no-target', '名前が聞き取れませんでした（「ヘイ <名前>、…」）');
+  const confidence = 0.9;
 
   // 2. Remainder = whatever follows the matched name. Keep BOTH forms: a
   //    normalized one for option/shortcut detection, and the original (spaces +
   //    case preserved) for free-form dictation that gets typed verbatim.
-  let origRest = (nameHit ? afterName(text, nameHit) : text) ?? '';
+  let origRest = (nameHit ? afterName(text, nameHit, romaji) : text) ?? '';
   origRest = origRest.replace(/^(さん|くん|ちゃん)/, ''); // drop an honorific right after the name
-  origRest = origRest.replace(/^[\s、。,.:：・]+/, '');
-  const rest = norm(origRest);
+  origRest = origRest.replace(/^[\s、。,.:：・!！?？]+/, ''); // and any separator whisper jammed on ("Paul!Dev"→"Dev")
+  const rest = normLite(origRest); // keyword matching: NO romaji fold (see normLite)
 
   // 3a. Leading option token → select that choice. If the pane carries an
   //     explicit option with its own keys/text (e.g. a permission template:
