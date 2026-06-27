@@ -10,9 +10,10 @@
 // title marker is the most portable signal and is always emitted.
 
 import { execFileSync } from 'node:child_process';
-import { writeFileSync, readFileSync, existsSync, rmSync, mkdirSync } from 'node:fs';
+import { writeFileSync, readFileSync, existsSync, rmSync, mkdirSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { stateDir } from './state.mjs';
+import { panesByTty } from './tmux.mjs';
 
 const isMac = process.platform === 'darwin';
 const BEL = '\x07';
@@ -50,18 +51,26 @@ const sgrBar = (label, color) => {
   return `\r\n\x1b[1;30;${bg}m  ⏳ ${label || 'input'}  \x1b[0m${BEL}\r\n`;
 };
 
+// Background TINTS for the waiting pane. These flood the whole pane/terminal
+// background, so they must stay DARK — a terminal's foreground text is light and
+// tuned for a dark bg; a bright fill (the old #FFD400) destroys contrast and is
+// unreadable. Instead we keep the bg dark and only shift its HUE, so light text
+// keeps ~7:1 contrast (WCAG AA) while the pane still reads as "amber = waiting".
 const colorHex = (c) => {
-  const map = { yellow: '#FFD400', orange: '#FF9500', red: '#FF3B30', green: '#34C759' };
+  const map = { yellow: '#3A3000', orange: '#3A2400', red: '#381010', green: '#0F3315' };
   if (!c) return map.yellow;
   return map[c] || (c.startsWith('#') ? c : map.yellow);
 };
 
 // --- tmux ---
 const tmuxPane = () => (process.env.TMUX && process.env.TMUX_PANE ? process.env.TMUX_PANE : null);
+// Dark tints (see colorHex) — a subtle hue shift on a dark bg, NOT a bright fill,
+// so the pane's text stays readable. Hex needs a truecolor terminal (Ghostty,
+// iTerm2, …); tmux passes it straight through.
 const tmuxSet = (c) => {
   const pane = tmuxPane();
   if (!pane) return;
-  const color = c === 'yellow' || !c ? 'colour220' : c;
+  const color = c && c.startsWith('#') ? c : colorHex(c);
   try {
     execFileSync('tmux', ['select-pane', '-t', pane, '-P', `bg=${color}`]);
   } catch {
@@ -161,12 +170,13 @@ end tell`;
   }
 };
 
-// 16-bit RGB for AppleScript yellow-ish; reuse hex→approx for custom.
+// 16-bit RGB for AppleScript — the DARK tints from colorHex (scaled ×257), so
+// Apple Terminal's tab bg is dimmed-amber, not a bright fill (keeps text readable).
 const rgb16From = (c) => {
-  if (c === 'orange') return '65535, 38000, 0';
-  if (c === 'red') return '65535, 15000, 12000';
-  if (c === 'green') return '13000, 51000, 22000';
-  return '65535, 54000, 0'; // yellow
+  if (c === 'orange') return '14906, 9252, 0'; // #3A2400
+  if (c === 'red') return '14392, 4112, 4112'; // #381010
+  if (c === 'green') return '3855, 13107, 5397'; // #0F3315
+  return '14906, 12336, 0'; // #3A3000 yellow
 };
 
 // A per-tty marker so `clear` only touches the terminal when WE highlighted it
@@ -243,6 +253,45 @@ end tell`;
     info.appleTerminal = 'skipped (detected a non-Terminal program)';
   }
   return info;
+};
+
+// Self-heal stuck highlights. The normal clear runs on the 'done' hook, but if an
+// agent exits WITHOUT firing it — Ctrl-C, a declined trust prompt, a crash — the
+// amber fill would persist on what's now an idle shell (exactly the "yellow when
+// NOT waiting" bug). So on every emit we sweep: any tmux pane WE marked
+// (hl-on-<tty>) that is no longer in the waiting set gets its background reset and
+// its marker dropped. Only touches panes we highlighted, never a user's own bg.
+// tmux-only (the OSC/Apple paths can't target another pane after the fact).
+export const sweepStaleHighlights = (waitingTtys = []) => {
+  let marks;
+  try {
+    marks = readdirSync(stateDir()).filter((f) => f.startsWith('hl-on-'));
+  } catch {
+    return;
+  }
+  if (!marks.length) return;
+  const waiting = new Set(waitingTtys);
+  let panes = {};
+  try {
+    panes = panesByTty();
+  } catch {
+    /* no tmux server */
+  }
+  for (const [tty, info] of Object.entries(panes)) {
+    if (waiting.has(tty)) continue; // legitimately still waiting
+    const mark = markPath(tty);
+    if (!existsSync(mark)) continue; // we didn't highlight this pane
+    try {
+      execFileSync('tmux', ['select-pane', '-t', info.paneId, '-P', 'bg=default']);
+    } catch {
+      /* ignore */
+    }
+    try {
+      rmSync(mark);
+    } catch {
+      /* ignore */
+    }
+  }
 };
 
 export const clearHighlight = () => {

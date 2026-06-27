@@ -118,6 +118,36 @@ export const setWarLevel = (v) => {
   return n;
 };
 
+// --- Summary level (要約度) -------------------------------------------------
+// A single number 0.0–1.0 in a state file controlling how much of the agent's
+// message gets read aloud, written by the menu bar slider or `ai-notify summary
+// level`, read at fire time. The slider maps to an approximate spoken DURATION:
+//   0.00 (MIN) → 効果音のみ・読み上げなし
+//   0.10       → ~1–2秒の要約
+//   0.25       → ~5秒の要約        (default when unset — matches the legacy read-out)
+//   0.50       → ~10秒の要約
+//   0.90       → ~20秒の要約
+//   1.00 (MAX) → 要約せず全文読み上げ
+// The level→length math lives in notify.mjs (summaryMaxChars). $AI_NOTIFY_SUMMARY_LEVEL
+// overrides per window; a per-pane `summary` setting overrides the file.
+const summaryLevelPath = () => join(stateDir(), 'summary-level');
+
+export const readSummaryLevel = () => {
+  try {
+    const v = parseFloat(readFileSync(summaryLevelPath(), 'utf8'));
+    return Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : null;
+  } catch {
+    return null;
+  }
+};
+
+export const setSummaryLevel = (v) => {
+  const n = Math.min(1, Math.max(0, Number(v)));
+  ensureDir(stateDir());
+  writeFileSync(summaryLevelPath(), String(n));
+  return n;
+};
+
 // --- VOICEVOX base prosody -------------------------------------------------
 // User-tunable BASE scales for the VOICEVOX read-out — the values used at the
 // NORMAL tone; tsundere tones nudge from here. Written by the menu bar sliders /
@@ -226,13 +256,18 @@ const waitingPath = () => join(stateDir(), 'waiting.json');
 
 // Track which panes are waiting for input, so the menu bar icon can show a
 // status color (yellow) when any agent needs you.
-export const setPaneWaiting = (tty, waiting, message = '') => {
+export const setPaneWaiting = (tty, waiting, message = '', options = null) => {
   if (!tty) return;
   const all = readJson(waitingPath(), {});
   // Store the reason text alongside the start time so the popup can filter by
   // wait duration and by message (e.g. ignore sub-agent waits, keep input waits).
-  if (waiting) all[tty] = { ts: Date.now(), msg: String(message || '') };
-  else delete all[tty];
+  // `options` (optional) carries the selectable choices for voice reply, so
+  // `ai-notify reply` knows what "Aを実行" maps to without re-deriving them.
+  if (waiting) {
+    const rec = { ts: Date.now(), msg: String(message || '') };
+    if (Array.isArray(options) && options.length) rec.options = options;
+    all[tty] = rec;
+  } else delete all[tty];
   writeJson(waitingPath(), all);
 };
 export const anyWaiting = () => Object.keys(readJson(waitingPath(), {})).length > 0;
@@ -369,6 +404,10 @@ export const reapDeadPanes = (liveTtys = [], { includeVoices = false } = {}) => 
 // be set (tsundere = a 0–1 baseline level override; null/absent = follow global).
 export const readPaneSetting = (tty) => (tty ? readJson(paneVoicesPath(), {})[tty] || {} : {});
 
+// The whole tty -> settings map (e.g. for voice routing, which needs every
+// pane's speakName at once rather than one tty's settings).
+export const readAllPaneSettings = () => readJson(paneVoicesPath(), {});
+
 // Merge `patch` into the pane's settings; keys set to null are removed; an empty
 // entry is deleted entirely.
 export const updatePaneSetting = (tty, patch) => {
@@ -408,10 +447,16 @@ export const DEFAULT_CONFIG = {
   highlightColor: 'yellow',
   // Make the desktop notification click bring the terminal/IDE forward.
   notifyActivate: true,
-  // Speak the agent's full message aloud (Codex's reply, a Claude prompt, the
-  // done-summary)? Default false = read only a short gist (first clause, capped
-  // at speakMaxChars) — enough to tell which task, never cut off. The full text
-  // still shows in the desktop banner. Set true to read the whole thing.
+  // Voice reply (the INPUT direction): speak a command back ("ずんだもんアルファ、
+  // Aを実行") and have it injected into that pane's agent via tmux. Default off;
+  // the menu bar's mic loop and `ai-notify reply` honor it. `announceOptions`
+  // reads the selectable choices aloud after a waiting notification.
+  voiceReply: { enabled: false, announceOptions: true },
+  // LEGACY read-out-length knobs, now superseded by the 要約度 slider (see
+  // readSummaryLevel / notify.mjs summaryMaxChars). They survive only as a
+  // fallback when no 要約度 has ever been set: speakAgentMessage:true maps to a
+  // full read (要約度 MAX), false to the ~5s default. Once the slider is touched,
+  // its state file wins and these are ignored.
   speakAgentMessage: false,
   speakMaxChars: 40,
   // Optional: translate the agent's message into this language before speaking

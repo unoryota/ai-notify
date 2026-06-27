@@ -1,6 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { joinName, restoreAgentNames } from '../src/notify.mjs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { joinName, restoreAgentNames, summaryMaxChars, shortenForSpeech, effectiveSummaryLevel } from '../src/notify.mjs';
+
+// Isolate state-file reads (effectiveSummaryLevel falls through to readSummaryLevel)
+// to an empty dir so the suite never depends on the developer's live 要約度 setting.
+process.env.XDG_STATE_HOME = join(tmpdir(), `ai-notify-test-${process.pid}`);
 
 test('joinName: Japanese uses a vocative comma, never a double topic', () => {
   // The body already carries its own subject ("Claudeは…"); the name must NOT
@@ -35,4 +41,66 @@ test('restoreAgentNames: leaves already-correct casing and unrelated words alone
   assert.equal(restoreAgentNames('Claude is done'), 'Claude is done');
   // Only whole words — does not mangle substrings.
   assert.equal(restoreAgentNames('claudette'), 'claudette');
+});
+
+test('summaryMaxChars: MIN is silent, MAX is the whole message', () => {
+  assert.equal(summaryMaxChars(0), 0); // 効果音のみ・読み上げなし
+  assert.equal(summaryMaxChars(-1), 0); // clamped
+  assert.equal(summaryMaxChars(1), Infinity); // 全文読み上げ
+  assert.equal(summaryMaxChars(2), Infinity); // clamped
+});
+
+test('summaryMaxChars: anchors hit the user-specified duration tiers', () => {
+  // ≈7.5 Japanese chars/sec → these are the durations from the spec.
+  assert.equal(summaryMaxChars(0.1), 12); // ~1–2秒
+  assert.equal(summaryMaxChars(0.25), 38); // ~5秒
+  assert.equal(summaryMaxChars(0.5), 75); // ~10秒
+  assert.equal(summaryMaxChars(0.9), 150); // ~20秒
+});
+
+test('summaryMaxChars: increases monotonically between anchors', () => {
+  let prev = -1;
+  for (let lv = 0.01; lv < 1; lv += 0.01) {
+    const m = summaryMaxChars(lv);
+    assert.ok(m >= prev, `level ${lv} should not shrink the budget`);
+    prev = m;
+  }
+});
+
+test('shortenForSpeech: Infinity budget returns the full text', () => {
+  const t = 'タスクが完了しました。3つのファイルを更新しました。テストも通っています。';
+  assert.equal(shortenForSpeech(t, Infinity), t);
+});
+
+test('shortenForSpeech: packs whole sentences up to the budget, not just the first', () => {
+  const t = 'aaa。bbb。ccc。ddd。';
+  // Budget for ~2 sentences ("aaa。bbb。" = 8 chars) but not the third.
+  const out = shortenForSpeech(t, 9);
+  assert.equal(out, 'aaa。bbb。');
+});
+
+test('shortenForSpeech: a single over-budget sentence is clause-cut, never run-on', () => {
+  const t = 'これは、とても、長い、ひとつの、文です';
+  const out = shortenForSpeech(t, 8);
+  assert.ok(out.length <= 8);
+  assert.ok(!out.endsWith('、')); // trailing clause separator trimmed
+});
+
+test('effectiveSummaryLevel: env override wins and is clamped', () => {
+  const prev = process.env.AI_NOTIFY_SUMMARY_LEVEL;
+  process.env.AI_NOTIFY_SUMMARY_LEVEL = '0.5';
+  assert.equal(effectiveSummaryLevel({}, {}), 0.5);
+  process.env.AI_NOTIFY_SUMMARY_LEVEL = '9';
+  assert.equal(effectiveSummaryLevel({}, {}), 1);
+  if (prev === undefined) delete process.env.AI_NOTIFY_SUMMARY_LEVEL;
+  else process.env.AI_NOTIFY_SUMMARY_LEVEL = prev;
+});
+
+test('effectiveSummaryLevel: per-pane beats config; legacy speakAgentMessage maps to full', () => {
+  const prev = process.env.AI_NOTIFY_SUMMARY_LEVEL;
+  delete process.env.AI_NOTIFY_SUMMARY_LEVEL;
+  assert.equal(effectiveSummaryLevel({ speakAgentMessage: true }, { summary: 0.3 }), 0.3);
+  assert.equal(effectiveSummaryLevel({ speakAgentMessage: true }, {}), 1);
+  assert.equal(effectiveSummaryLevel({}, {}), 0.25); // default ~5s
+  if (prev !== undefined) process.env.AI_NOTIFY_SUMMARY_LEVEL = prev;
 });

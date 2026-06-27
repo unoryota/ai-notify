@@ -5,7 +5,7 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { execSync, execFileSync } from 'node:child_process';
 import { providers, byId } from './providers/index.mjs';
-import { emit } from './notify.mjs';
+import { emit, summaryMaxChars } from './notify.mjs';
 import { deriveLabel, cliInvocation, isEphemeralInstall, controllingTty, liveAgentTtys } from './util.mjs';
 import { curatedVoices, resolveVoice, previewVoice } from './voices.mjs';
 import * as menubar from './menubar.mjs';
@@ -15,6 +15,8 @@ import * as voicevox from './voicevox.mjs';
 import * as tsundere from './tsundere.mjs';
 import * as war from './war.mjs';
 import { lastAssistantText } from './transcript.mjs';
+import { resolveCommand, parseOptions } from './route.mjs';
+import * as tmux from './tmux.mjs';
 import {
   isMuted,
   setMuted,
@@ -34,6 +36,8 @@ import {
   readPanes,
   reapDeadPanes,
   readPaneSetting,
+  readAllPaneSettings,
+  readWaiting,
   updatePaneSetting,
   firstRunNudge,
   isPopupEnabled,
@@ -52,6 +56,8 @@ import {
   setWarEnabled,
   readWarLevel,
   setWarLevel,
+  readSummaryLevel,
+  setSummaryLevel,
 } from './state.mjs';
 import { resolve as resolvePath, join as pathJoin } from 'node:path';
 
@@ -114,6 +120,11 @@ const cmds = {
     log(`\nMute toggle:  ai-notify toggle    Status:  ai-notify status`);
     if (!dryRun) {
       log('Restart already-running agent sessions to pick up the change.');
+      // The menu bar icon is a SEPARATE install from hook wiring — point the way,
+      // since `init` alone never makes a 🔔 appear (a common "no icon" surprise).
+      if (menubar.isMac() && !menubar.isInstalled()) {
+        log('\n🔔 Want a menu bar icon (mute, volume, voices)?  ai-notify menubar install');
+      }
       // A quiet, one-time nudge — `init` is a setup command, run once. Shown
       // only on the first successful wiring so it never nags on re-runs.
       if (any && firstRunNudge()) {
@@ -320,6 +331,30 @@ const cmds = {
     log(`🔊 volume → ${n}`);
   },
 
+  // 要約度 (summary level) 0.0–1.0 — how much of the agent's message is read aloud.
+  // Written to a state file the menu bar slider also drives; $AI_NOTIFY_SUMMARY_LEVEL
+  // overrides per window. MIN = 効果音のみ・読み上げなし, MAX = 全文読み上げ.
+  //   summary [level] <0-1> | summary   (status)
+  summary() {
+    let arg = positionals[0];
+    if (arg === 'level') arg = positionals[1]; // allow `summary level 0.5` (tsundere-style)
+    const describe = (lvl) => {
+      const max = summaryMaxChars(lvl);
+      if (max === 0) return '効果音のみ・読み上げなし';
+      if (max === Infinity) return '全文読み上げ';
+      return `約${Math.max(1, Math.round(max / 7.5))}秒の要約 (≈${max}文字)`;
+    };
+    if (arg === undefined) {
+      const lvl = readSummaryLevel();
+      const eff = lvl != null ? lvl : 0.25;
+      log(`要約度: ${eff}  — ${describe(eff)}${lvl == null ? '  (未設定: 既定値)' : ''}`);
+      log('  set:  ai-notify summary <0-1>   (0=効果音のみ … 1=全文)');
+      return;
+    }
+    const n = setSummaryLevel(arg);
+    log(`📝 要約度 → ${n}  — ${describe(n)}`);
+  },
+
   // Tsundere mode: skin the spoken read-out with a tsundere persona that turns
   // ツン (harsh + louder) on failures and デレ (warm) on clean passes. Offline,
   // deterministic, no cost.
@@ -439,6 +474,7 @@ const cmds = {
           level: readTsundereLevel() != null ? readTsundereLevel() : config.tsundere?.level ?? 0.5,
         },
         war: { enabled: isWarEnabled(), level: readWarLevel() },
+        summary: { level: readSummaryLevel() != null ? readSummaryLevel() : 0.25 },
       };
       const p = read();
       p[name] = snap;
@@ -467,6 +503,7 @@ const cmds = {
         setWarEnabled(!!s.war.enabled);
         if (typeof s.war.level === 'number') setWarLevel(s.war.level);
       }
+      if (s.summary && typeof s.summary.level === 'number') setSummaryLevel(s.summary.level);
       return log(`▶ loaded preset "${name}"`);
     }
     console.error('usage: preset [list | save <name> | load <name> | delete <name>]');
@@ -759,6 +796,76 @@ const cmds = {
     log(`✓ ${bits.join('  ·  ')}`);
   },
 
+  // Voice reply — the INPUT direction. Given a spoken/recognized utterance
+  // (e.g. "ずんだもんアルファ、Aを実行"), figure out WHICH pane and WHAT to inject,
+  // then deliver it into that agent via tmux send-keys (no window focus needed —
+  // hands-free). This is the single seam the menu bar's speech loop calls:
+  //   ai-notify reply "<text>" [--dry-run] [--explain]
+  // The brain (resolveCommand) is a pure, tested function in route.mjs; here we
+  // only read state, map the chosen tty -> a tmux pane id, and act.
+  reply() {
+    const dry = !!opt('dry-run');
+    const explain = !!opt('explain');
+    const text = positionals.join(' ').trim();
+    if (!text) {
+      console.error('usage: reply "<spoken text>" [--dry-run] [--explain]');
+      process.exit(1);
+    }
+    // Assemble the pane context: a tty is a candidate if it's waiting, or named,
+    // or simply a live recorded pane. Names come from speakName, falling back to
+    // the derived label.
+    const waiting = readWaiting(); // { tty: {ts,msg} }
+    const settings = readAllPaneSettings(); // { tty: {speakName,...} }
+    const labels = Object.fromEntries(readPanes().map((p) => [p.tty, p.label]));
+    const ttys = new Set([...Object.keys(waiting), ...Object.keys(settings), ...Object.keys(labels)]);
+    const panes = [...ttys].map((tty) => {
+      const msg = waiting[tty]?.msg || '';
+      return {
+        tty,
+        name: settings[tty]?.speakName || labels[tty] || '',
+        waiting: !!waiting[tty],
+        msg,
+        // Prefer the options persisted at notify time (they carry the right
+        // keystroke per choice); fall back to parsing the message text.
+        options: waiting[tty]?.options || parseOptions(msg),
+      };
+    });
+
+    const d = resolveCommand(text, panes);
+    if (!d.ok) {
+      log(`🤔 ${d.reason}`);
+      process.exit(2);
+    }
+
+    const paneId = tmux.paneForTty(d.tty);
+    const who = d.name || d.tty;
+    const desc = `${who}${paneId ? ` (${paneId})` : ''} → ${d.label}`;
+
+    if (explain || dry) {
+      log(`${dry ? '[dry-run] ' : ''}${desc}`);
+      log(`   action=${d.action}  confidence=${d.confidence}  tty=${d.tty}`);
+      if (d.text) log(`   type: ${JSON.stringify(d.text)}`);
+      if (d.keys?.length) log(`   keys: ${d.keys.join(' ')}`);
+      if (dry) return;
+    }
+
+    if (!tmux.isAvailable()) {
+      console.error('tmux サーバが見つかりません。エージェントを tmux 内で起動してください（`tmux` → 各ペインで agent 起動）。');
+      process.exit(3);
+    }
+    if (!paneId) {
+      console.error(`tmux ペインが見つかりません（${d.tty}）。この端末は tmux 管理下にありますか？`);
+      process.exit(3);
+    }
+    try {
+      tmux.inject(paneId, { text: d.text, keys: d.keys });
+      log(`✅ ${desc}`);
+    } catch (e) {
+      console.error(`注入に失敗しました: ${e.message}`);
+      process.exit(4);
+    }
+  },
+
   // Per-kind notification toggles: which kinds of agent event actually alert
   // (sound / banner / voice / popup). Lets you, e.g., keep input-waiting but
   // silence "done", or turn on sub-agent completions.
@@ -945,6 +1052,7 @@ const cmds = {
     const globalVol = readVolume() != null ? readVolume() : typeof config.volume === 'number' ? config.volume : 1;
     const tsLevel = readTsundereLevel() != null ? readTsundereLevel() : config.tsundere?.level ?? 0.5;
     const warGlobal = readWarLevel();
+    const summaryGlobal = readSummaryLevel() != null ? readSummaryLevel() : 0.25;
     const prosGlobal = readVoiceProsody();
     const recorded = new Map(readPanes().map((p) => [p.tty, p.label]));
     const ttys = new Set([...live, ...recorded.keys()]);
@@ -974,6 +1082,7 @@ const cmds = {
         panes,
         tsundere: { enabled: !!config.tsundere?.enabled, level: tsLevel },
         war: { enabled: isWarEnabled(), level: readWarLevel() },
+        summary: { level: summaryGlobal },
         tts: config.tts || 'say',
         prosody: readVoiceProsody(),
         prosodyRange: VOICE_PROSODY_RANGE,
@@ -1022,7 +1131,9 @@ const cmds = {
     if (sub === 'on') {
       const lang = positionals[1] || 'ja';
       config.translateTo = lang;
-      config.speakAgentMessage = true; // we must keep the message to translate it
+      // Translation applies to the read-out regardless; spoken LENGTH is governed
+      // independently by the 要約度 slider, so enabling translation must not also
+      // force a full read-out (it used to set speakAgentMessage here).
       writeConfig(config);
       log(`✓ translation on → ${lang}. Testing…`);
       const out = translate('The task is done. I updated three files.', lang, 8000);
@@ -1114,7 +1225,7 @@ const cmds = {
     const alert = isNotifyKindEnabled(kind);
     const label = deriveLabel(cwd);
     const emitEvent = event === 'subagent-done' ? 'done' : event;
-    emit({ provider: byId(source) ? source : 'default', event: emitEvent, label, message, alert });
+    emit({ provider: byId(source) ? source : 'default', event: emitEvent, label, message, alert, kind });
   },
 
   version() { log(VERSION); },
@@ -1176,6 +1287,7 @@ function demoMenuJson() {
     panes,
     tsundere: { enabled: true, level: 0.85 }, // ON → slider active
     war: { enabled: true, level: 0.7 }, // ON → black→white gradient slider active
+    summary: { level: 0.25 },
     tts: 'voicevox',
     prosody,
     prosodyRange: VOICE_PROSODY_RANGE,
@@ -1189,13 +1301,15 @@ Usage:
   ai-notify init [--dry-run] [--only claude,codex,gemini]   wire detected agents
   ai-notify uninstall [--only ...]                   remove wiring
   ai-notify use <name> [voice] [vol] [--tab <t>]     name THIS pane + voice + tab, at once (voice: Kyoko | 3 | ずんだもん | vv3)
+  ai-notify reply "<text>" [--dry-run] [--explain]   音声入力で待機中エージェントへ指示 (要 tmux): "ずんだもんアルファ、Aを実行"
   ai-notify toggle | on | off | status               control the mute switch
   ai-notify volume [0.0-2.0]                          get/set output volume
+  ai-notify summary [0.0-1.0]                         要約度: 0=効果音のみ … 0.5=10秒 … 1=全文読み上げ
   ai-notify voice [number|name|preview|default]      pick the spoken voice
   ai-notify voicevox [setup|on <id>|off|speakers|test]  speak in VOICEVOX character voices
   ai-notify tsundere [on|off|level <0-1>|test|status]   tsundere persona (toggle + slider: 左ツン/中央OFF/右デレ)
   ai-notify safety [on|off|level <0-1>|test|status]     心理的安全性 (toggle + slider: 左ブラック企業/中央OFF/右ホワイト企業)
-  ai-notify preset [list|save <name>|load <name>|delete <name>]   save/restore volume+tsundere+war+prosody
+  ai-notify preset [list|save <name>|load <name>|delete <name>]   save/restore volume+tsundere+war+summary+prosody
   ai-notify voice-prosody [speed|pitch|intonation <v>|reset]  VOICEVOX read-out tuning
   ai-notify menubar [install|uninstall|status]       native menu bar bell (macOS)
   ai-notify notify [<kind> on|off]                   which events alert: input|permission|info|done|subagent-done
@@ -1207,6 +1321,7 @@ Usage:
 Per-window overrides (export in a terminal before launching the agent):
   AI_NOTIFY_VOICE=Eddy    give this window/pane its own spoken voice
   AI_NOTIFY_LABEL=api     name this window in the spoken/banner read-out
+  AI_NOTIFY_SUMMARY_LEVEL=0.5   this window's 要約度 (0=効果音のみ … 1=全文)
 
 Make it one tap: bind a hotkey / menubar button to \`ai-notify toggle\`
 (see recipes/ for macOS Shortcuts, Raycast, SwiftBar, Hammerspoon, tmux).`);

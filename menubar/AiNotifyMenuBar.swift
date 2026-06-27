@@ -12,6 +12,8 @@
 // Builds with the system `swiftc` — no Xcode project, no dependencies.
 
 import Cocoa
+import Speech
+import AVFoundation
 
 enum State {
     static func dir() -> String {
@@ -132,6 +134,82 @@ enum State {
         try? String(format: "%.2f", v).write(toFile: file("tsundere-level"), atomically: true, encoding: .utf8)
     }
 
+    // --- Voice input (音声操作) -------------------------------------------------
+    // A flag file (same plain-file pattern as `muted`/`popup`) records whether the
+    // mic wake-word loop should run, so the choice survives relaunches.
+    static var voiceInputEnabled: Bool { FileManager.default.fileExists(atPath: file("voice-input")) }
+    static func setVoiceInput(_ on: Bool) {
+        let p = file("voice-input"), fm = FileManager.default
+        if on { try? fm.createDirectory(atPath: dir(), withIntermediateDirectories: true); fm.createFile(atPath: p, contents: Data()) }
+        else { try? fm.removeItem(atPath: p) }
+    }
+
+    // Normalize for loose name matching (mirror route.mjs norm: drop spaces +
+    // punctuation, fold katakana→hiragana so ジョン==じょん, lowercase). Just enough
+    // for a wake-word containment check.
+    private static func normName(_ s: String) -> String {
+        let drop = CharacterSet(charactersIn: " 　、。，．.,!！?？「」『』（）()・:：;；\n\t")
+        let stripped = s.precomposedStringWithCompatibilityMapping // half-width kana → full
+            .components(separatedBy: drop).joined()
+            .decomposedStringWithCanonicalMapping // ジ → シ + ゛ so the mark can be dropped
+        var out = ""
+        for u in stripped.unicodeScalars {
+            // Strip voicing marks so ポ=ボ=ホ, カ=ガ, シ=ジ all match — speech
+            // recognition very often mis-voices a name ("ポール"→"ボール"). Mirrors
+            // route.mjs norm()'s VOICING fold. Covers combining (3099/309A),
+            // standalone (309B/309C), and half-width (FF9E/FF9F) marks.
+            switch u.value {
+            case 0x3099, 0x309A, 0x309B, 0x309C, 0xFF9E, 0xFF9F: continue
+            default: break
+            }
+            // Katakana ァ(0x30A1)–ヶ(0x30F6) → hiragana by subtracting 0x60.
+            if u.value >= 0x30A1 && u.value <= 0x30F6, let h = Unicode.Scalar(u.value - 0x60) {
+                out.unicodeScalars.append(h)
+            } else {
+                out.unicodeScalars.append(u)
+            }
+        }
+        return out.lowercased()
+    }
+
+    // Every pane's spoken name (speakName) and label — the wake words. A spoken
+    // utterance only reaches `ai-notify reply` when it names one of these, so
+    // ambient conversation never injects into an agent.
+    static func knownPaneNames() -> [String] {
+        var names: [String] = []
+        for (_, v) in json("pane-voices.json") {
+            if let d = v as? [String: Any], let n = d["speakName"] as? String { names.append(n) }
+        }
+        for (_, v) in json("panes.json") {
+            if let d = v as? [String: Any], let n = d["label"] as? String { names.append(n) }
+        }
+        return names.map(normName).filter { $0.count >= 2 }
+    }
+
+    // Does a finalized utterance address one of the named panes? (The wake gate.)
+    static func utteranceAddressesPane(_ text: String) -> Bool {
+        let n = normName(text)
+        return knownPaneNames().contains { n.contains($0) }
+    }
+
+    // Append a timestamped line to <stateDir>/voice.log (capped) so the voice
+    // path is debuggable without fighting the unified log. `tail -f` it.
+    static func voiceLog(_ msg: String) {
+        let path = file("voice.log")
+        let line = "[\(ISO8601DateFormatter().string(from: Date()))] \(msg)\n"
+        try? FileManager.default.createDirectory(atPath: dir(), withIntermediateDirectories: true)
+        if let h = FileHandle(forWritingAtPath: path) {
+            h.seekToEndOfFile(); h.write(line.data(using: .utf8) ?? Data()); try? h.close()
+            // Trim if it grows past ~64 KB.
+            if let size = try? FileManager.default.attributesOfItem(atPath: path)[.size] as? Int, size > 65536,
+               let data = FileManager.default.contents(atPath: path) {
+                try? data.suffix(32768).write(to: URL(fileURLWithPath: path))
+            }
+        } else {
+            try? line.write(toFile: path, atomically: true, encoding: .utf8)
+        }
+    }
+
     @discardableResult
     static func cli(_ args: [String], capture: Bool = false) -> String? {
         let launcher = file("cli")
@@ -214,6 +292,14 @@ let TSUNDERE_GRADIENT = (NSColor(srgbRed: 0.27, green: 0.53, blue: 0.96, alpha: 
                          NSColor(srgbRed: 1.0, green: 0.45, blue: 0.66, alpha: 1))  // デレ: あたたかいピンク
 let PSAFETY_GRADIENT = (NSColor(white: 0.12, alpha: 1),  // ブラック企業: 黒
                         NSColor(white: 0.97, alpha: 1))  // ホワイト企業: 白
+// 要約度: 左(MIN)=効果音のみ … 右(MAX)=全文読み上げ。短い→長いを淡→濃の緑で。
+let SUMMARY_GRADIENT = (NSColor(srgbRed: 0.70, green: 0.86, blue: 0.74, alpha: 1), // MIN: 淡い緑
+                        NSColor(srgbRed: 0.18, green: 0.60, blue: 0.33, alpha: 1)) // MAX: 濃い緑
+// System accent blue. A plain NSSlider only paints its filled track in the accent
+// color while its window is key; inside a menu (never key) it falls back to a dull
+// grey. Setting `trackFillColor` paints it ourselves, so menu sliders stay blue
+// regardless of focus — the same trick the settings window uses.
+let ACCENT_BLUE = NSColor(srgbRed: 0, green: 122.0 / 255.0, blue: 1, alpha: 1)
 
 // One floating "応答待ち" card, built once and updated in place.
 final class PopupCard: NSObject {
@@ -435,6 +521,9 @@ final class SettingsWindowController: NSObject {
         let rows: [SettingsRow] = [
             SettingsRow(title: "音量", asCheckbox: false, on: false, lo: 0, hi: 2, value: (j["volume"] as? Double) ?? 1, fill: blue,
                         onChange: { State.cli(["volume", String(format: "%.2f", $0)]) }),
+            // 要約度: 0=効果音のみ・読み上げなし … 0.5=約10秒 … 1=全文読み上げ。
+            SettingsRow(title: "要約度", asCheckbox: false, on: false, lo: 0, hi: 1, value: ((j["summary"] as? [String: Any])?["level"] as? Double) ?? 0.25, fill: blue, colors: SUMMARY_GRADIENT,
+                        onChange: { State.cli(["summary", String(format: "%.2f", $0)]) }),
             // Reversed: field/knob left(0)=ツン … right(1)=デレ, while the file keeps 0=デレ…1=ツン.
             SettingsRow(title: "ツンデレ", asCheckbox: false, on: false, lo: 0, hi: 1, value: 1 - ((tsun?["level"] as? Double) ?? 0.5), fill: blue, colors: TSUNDERE_GRADIENT,
                         onChange: { State.cli(["tsundere", "level", String(format: "%.2f", 1 - $0)]) }),
@@ -501,10 +590,216 @@ final class SettingsWindowController: NSObject {
     }
 }
 
+// Always-listening voice input. SFSpeechRecognizer (ja-JP) transcribes the mic
+// continuously; each finalized utterance (the user pauses) is checked against the
+// pane names — when it addresses one ("ずんだもんアルファ、Aを実行"), the whole
+// utterance is handed to `ai-notify reply`, which decides the target + injects it
+// via tmux. The pane name is the wake word, so nothing else fires.
+//
+// The audio engine + tap run once and stay up; only the recognition request/task
+// are recycled per utterance (SFSpeechRecognitionRequest finalizes after a pause
+// and has a ~1-min cap), which avoids audible engine restarts.
+final class VoiceListener: NSObject {
+    private let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "ja-JP"))
+    private let engine = AVAudioEngine()
+    private var request: SFSpeechAudioBufferRecognitionRequest?
+    private var task: SFSpeechRecognitionTask?
+    private var running = false
+    private var tapInstalled = false
+    private var silenceTimer: Timer?
+    private var lastText = ""
+    private var tapBuffers = 0
+    private var consecutiveErrors = 0
+    private var loggedAudioOnce = false
+    private var generation = 0 // bumped on every teardown; stale task callbacks ignored
+
+    // Ask for Speech + mic permission, then start. completion(ok, message) on main.
+    func enable(_ completion: @escaping (Bool, String) -> Void) {
+        State.voiceLog("enable() called; speechStatus=\(SFSpeechRecognizer.authorizationStatus().rawValue) micStatus=\(AVCaptureDevice.authorizationStatus(for: .audio).rawValue)")
+        SFSpeechRecognizer.requestAuthorization { auth in
+            DispatchQueue.main.async {
+                State.voiceLog("speech auth callback: \(auth.rawValue)")
+                guard auth == .authorized else { completion(false, "音声認識の許可が必要です（システム設定 › プライバシー）"); return }
+                self.requestMic { granted in
+                    State.voiceLog("mic granted: \(granted); recognizer=\(self.recognizer != nil ? "ok" : "nil") available=\(self.recognizer?.isAvailable ?? false)")
+                    guard granted else { completion(false, "マイクの許可が必要です（システム設定 › プライバシー）"); return }
+                    guard let r = self.recognizer, r.isAvailable else { completion(false, "日本語の音声認識が利用できません"); return }
+                    do {
+                        try self.start()
+                        State.voiceLog("listening (onDevice=\(r.supportsOnDeviceRecognition ? "yes" : "no"))")
+                        completion(true, "🎙️ 音声操作 ON")
+                    } catch {
+                        State.voiceLog("start FAILED: \(error.localizedDescription)")
+                        completion(false, "マイクの開始に失敗: \(error.localizedDescription)")
+                    }
+                }
+            }
+        }
+    }
+
+    private func requestMic(_ cb: @escaping (Bool) -> Void) {
+        switch AVCaptureDevice.authorizationStatus(for: .audio) {
+        case .authorized: cb(true)
+        case .notDetermined: AVCaptureDevice.requestAccess(for: .audio) { ok in DispatchQueue.main.async { cb(ok) } }
+        default: cb(false)
+        }
+    }
+
+    private func start() throws {
+        let input = engine.inputNode
+        let format = input.outputFormat(forBus: 0)
+        if !loggedAudioOnce { State.voiceLog("input format: \(format.sampleRate)Hz ch=\(format.channelCount)") }
+        if !tapInstalled {
+            input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buf, _ in
+                guard let self = self else { return }
+                if self.tapBuffers == 0 && !self.loggedAudioOnce {
+                    State.voiceLog("first audio buffer: frames=\(buf.frameLength)")
+                    self.loggedAudioOnce = true
+                }
+                self.tapBuffers += 1
+                self.request?.append(buf)
+            }
+            tapInstalled = true
+        }
+        engine.prepare()
+        try engine.start()
+        running = true
+        beginTask()
+    }
+
+    private func beginTask() {
+        guard running, let recognizer = recognizer, recognizer.isAvailable else { return }
+        State.voiceLog("task started")
+        let req = SFSpeechAudioBufferRecognitionRequest()
+        req.shouldReportPartialResults = true
+        if recognizer.supportsOnDeviceRecognition { req.requiresOnDeviceRecognition = true }
+        request = req
+        lastText = ""
+        // Tag this task with the current generation. teardownSession() bumps the
+        // generation, so a CANCELLED task's late callback (its "canceled" error)
+        // is ignored here instead of kicking off a SECOND restart chain — that
+        // duplication is what made restarts multiply into a runaway loop.
+        let gen = generation
+        // On-device continuous recognition rarely sets `isFinal` on a natural
+        // pause, so we endpoint ourselves: every partial result (re)arms a short
+        // silence timer; when it fires we treat the latest transcript as the
+        // utterance. isFinal (when it does come) finalizes immediately.
+        task = recognizer.recognitionTask(with: req) { [weak self] result, error in
+            guard let self = self else { return }
+            DispatchQueue.main.async {
+                guard self.generation == gen else { return } // stale task → ignore
+                if let result = result {
+                    let txt = result.bestTranscription.formattedString
+                    if !txt.isEmpty {
+                        self.consecutiveErrors = 0 // recognition is working
+                        if txt != self.lastText { State.voiceLog("partial: \"\(txt)\"") } // live view
+                        self.lastText = txt
+                        self.armSilence()
+                    }
+                    if result.isFinal { self.endpointUtterance() }
+                }
+                if let error = error { self.handleTaskError(error) }
+            }
+        }
+    }
+
+    // A recognition task ended with an error. Two kinds:
+    //   • Benign — "No speech detected" / "Retry": the normal way a request ends
+    //     after a stretch of silence. Just start the next one promptly; NEVER
+    //     count these (else the listener would die during normal quiet use).
+    //   • Real — e.g. "Siri and Dictation are disabled": back off (capped) and
+    //     keep retrying so it AUTO-RECOVERS once the user fixes the setting; only
+    //     log occasionally so it can't flood.
+    private func handleTaskError(_ error: Error) {
+        let ns = error as NSError
+        let msg = ns.localizedDescription.lowercased()
+        // "No speech detected" (1110), "Retry" (203), and our own cycle's
+        // "Recognition request was canceled" (216/301) are all normal — never fatal.
+        let benign = ns.code == 1110 || ns.code == 203 || ns.code == 216 || ns.code == 301
+            || msg.contains("no speech") || msg.contains("cancel")
+        teardownSession()
+        if benign { restart(after: 0.3); return }
+        consecutiveErrors += 1
+        if consecutiveErrors <= 2 { State.voiceLog("task error: \(error.localizedDescription)") }
+        else if consecutiveErrors == 3 { State.voiceLog("認識エラーが継続中（自動再試行します）。Dictation設定をご確認ください。") }
+        restart(after: Double(min(consecutiveErrors, 5))) // up to 5s; keeps retrying, never gives up
+    }
+
+    private func armSilence() {
+        silenceTimer?.invalidate()
+        // Wait this long after the transcript stops changing before treating it as
+        // a finished utterance. Long enough to ride over natural mid-sentence
+        // pauses (and the recognizer's lag) so it doesn't cut a command in half.
+        silenceTimer = Timer.scheduledTimer(withTimeInterval: 1.8, repeats: false) { [weak self] _ in
+            self?.endpointUtterance()
+        }
+    }
+
+    // Endpoint the current utterance: hand off the latest transcript, then cycle.
+    private func endpointUtterance() {
+        guard request != nil else { return } // already cycled
+        silenceTimer?.invalidate(); silenceTimer = nil
+        let text = lastText
+        lastText = ""
+        if !text.isEmpty { handle(text) }
+        cycleTask()
+    }
+
+    // Tear the recognition session ALL the way down. On-device recognition doesn't
+    // reliably accept a new request on the same running engine (the 2nd task goes
+    // silent), so we remove the tap and stop the engine and rebuild from scratch
+    // each utterance — reliable, at the cost of ~0.3s between utterances.
+    private func teardownSession() {
+        generation &+= 1 // invalidate any in-flight task's callbacks
+        silenceTimer?.invalidate(); silenceTimer = nil
+        task?.cancel(); task = nil
+        request?.endAudio(); request = nil
+        engine.inputNode.removeTap(onBus: 0)
+        tapInstalled = false
+        if engine.isRunning { engine.stop() }
+        tapBuffers = 0
+    }
+
+    private func restart(after delay: Double) {
+        guard running else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self = self, self.running else { return }
+            do { try self.start() } catch { State.voiceLog("restart failed: \(error.localizedDescription)") }
+        }
+    }
+
+    private func cycleTask() {
+        teardownSession()
+        restart(after: 0.3)
+    }
+
+    func disable() {
+        running = false
+        silenceTimer?.invalidate(); silenceTimer = nil
+        task?.cancel(); task = nil
+        request?.endAudio(); request = nil
+        if engine.isRunning { engine.stop() }
+    }
+
+    // A finalized utterance: forward it to `ai-notify reply` only if it names a
+    // pane, and chirp on a successful injection.
+    private func handle(_ text: String) {
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty else { return }
+        let addressed = State.utteranceAddressesPane(t)
+        State.voiceLog("heard: \"\(t)\"  addressed=\(addressed ? "yes" : "no")")
+        guard addressed else { return }
+        let out = (State.cli(["reply", t], capture: true) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        State.voiceLog("reply: \(out)")
+        if out.hasPrefix("✅") { NSSound(named: "Tink")?.play() }
+    }
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var timer: Timer?
     private let settings = SettingsWindowController()
+    private let voice = VoiceListener()
 
     // The "waiting for input" popup — one floating card per waiting pane.
     private var waitingCards: [String: PopupCard] = [:] // keyed by tty
@@ -535,6 +830,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             self?.render()
             self?.updateWaitingPopup()
+        }
+        // Resume the mic wake-word loop if it was left on (clear the flag if the
+        // permission was since revoked, so the menu reflects reality).
+        State.voiceLog("didFinishLaunching; voiceInputEnabled=\(State.voiceInputEnabled)")
+        if State.voiceInputEnabled {
+            voice.enable { ok, msg in State.voiceLog("enable completion: ok=\(ok) msg=\(msg)"); if !ok { State.setVoiceInput(false) } }
         }
 
         var shotPath = ProcessInfo.processInfo.environment["AI_NOTIFY_SHOT"]
@@ -730,6 +1031,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let row = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
         let slider = NSSlider(value: value, minValue: lo, maxValue: hi, target: self, action: action)
         slider.frame = NSRect(x: 12, y: 3, width: 212, height: 20)
+        slider.trackFillColor = ACCENT_BLUE // stay blue even when the menu isn't key
         slider.isContinuous = false
         slider.identifier = NSUserInterfaceItemIdentifier(id)
         row.addSubview(slider)
@@ -791,6 +1093,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         cap.font = .systemFont(ofSize: 11); cap.textColor = .secondaryLabelColor
         let slider = NSSlider(value: value, minValue: lo, maxValue: hi, target: self, action: #selector(prosodyChanged(_:)))
         slider.frame = NSRect(x: 62, y: 3, width: 162, height: 20)
+        slider.trackFillColor = ACCENT_BLUE // stay blue even when the menu isn't key
         slider.isContinuous = false
         slider.identifier = NSUserInterfaceItemIdentifier(key)
         row.addSubview(cap); row.addSubview(slider)
@@ -809,6 +1112,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let icon = NSTextField(labelWithString: muted ? "🔇" : "🔊"); icon.frame = NSRect(x: 12, y: 4, width: 20, height: 18)
         let slider = NSSlider(value: value, minValue: 0, maxValue: 2, target: self, action: action)
         slider.frame = NSRect(x: 36, y: 3, width: 170, height: 20)
+        slider.trackFillColor = ACCENT_BLUE // stay blue even when the menu isn't key
         slider.isContinuous = (identifier == nil)
         if let id = identifier { slider.identifier = NSUserInterfaceItemIdentifier(id) }
         if identifier == nil { globalVolumeIcon = icon }
@@ -830,6 +1134,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let action: Selector = identifier == nil ? #selector(tsundereLevelChanged(_:)) : #selector(paneTsundereChanged(_:))
         let slider = NSSlider(value: 1 - value, minValue: 0, maxValue: 1, target: self, action: action)
         slider.frame = NSRect(x: 46, y: 3, width: 128, height: 20)
+        slider.trackFillColor = ACCENT_BLUE // stay blue even when the menu isn't key
         slider.isContinuous = (identifier == nil)
         if let id = identifier { slider.identifier = NSUserInterfaceItemIdentifier(id) }
         let right = NSTextField(labelWithString: "デレ")
@@ -899,12 +1204,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setRowEnabled(psafetySlider, psafetyCap, (sender as? NSSwitch)?.state == .on)
     }
     @objc private func warLevelChanged(_ s: NSSlider) { State.cli(["war", "level", String(format: "%.2f", s.doubleValue)]) }
+    @objc private func summaryLevelChanged(_ s: NSSlider) { State.cli(["summary", String(format: "%.2f", s.doubleValue)]) }
     // Reversed like the other tsundere sliders: left = ツン, right = デレ → write 1 - pos.
     @objc private func tsundereLevelDirect(_ s: NSSlider) { State.cli(["tsundere", "level", String(format: "%.2f", 1 - s.doubleValue)]) }
 
     // representedObject is the full CLI arg array to run.
     @objc private func runItem(_ item: NSMenuItem) {
         if let cmd = item.representedObject as? [String] { State.cli(cmd) }
+    }
+
+    // Flip the mic wake-word loop on/off. Enabling is async (permission prompts);
+    // the flag is only persisted once it actually starts, and a denial shows why.
+    @objc private func toggleVoiceInput(_ sender: NSMenuItem) {
+        if State.voiceInputEnabled {
+            State.setVoiceInput(false)
+            voice.disable()
+            return
+        }
+        voice.enable { ok, msg in
+            if ok {
+                State.setVoiceInput(true)
+            } else {
+                let a = NSAlert()
+                a.messageText = "音声操作を開始できませんでした"
+                a.informativeText = msg
+                a.alertStyle = .warning
+                a.runModal()
+            }
+        }
     }
 
     private func disabledHeader(_ title: String) -> NSMenuItem {
@@ -924,6 +1251,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Global volume slider.
         menu.addItem(sliderRow(value: State.volume, action: #selector(volumeChanged(_:)), identifier: nil))
+        // 要約度: how much of the message is read aloud — left(0)=効果音のみ … right(1)=全文.
+        let summaryLevel = ((json?["summary"] as? [String: Any])?["level"] as? Double) ?? 0.25
+        menu.addItem(levelRow(label: "要約度", value: summaryLevel, colors: SUMMARY_GRADIENT, action: #selector(summaryLevelChanged(_:))))
         menu.addItem(.separator())
 
         // ツンデレ / 心理的安全性: each is a master ON/OFF switch + a bipolar slider
@@ -1056,6 +1386,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 menu.addItem(item)
             }
         }
+
+        menu.addItem(.separator())
+        // Voice input (音声操作): speak "<pane name>、<command>" to drive a waiting
+        // agent hands-free (requires tmux + mic/speech permission).
+        let voiceItem = NSMenuItem(title: "🎙️ 音声操作（ハンズフリー指示）", action: #selector(toggleVoiceInput(_:)), keyEquivalent: "")
+        voiceItem.target = self
+        voiceItem.state = State.voiceInputEnabled ? .on : .off
+        menu.addItem(voiceItem)
 
         menu.addItem(.separator())
         // Waiting-for-input popup: enable + when-to-show settings, all in a submenu.
