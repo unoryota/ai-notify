@@ -254,6 +254,23 @@ export const optionsForWaiting = (kind, message) => {
 const announceOptions = (options) =>
   options.map((o) => `${o.key} ${o.label}`).join('、');
 
+// Does this turn-ending message actually ASK the user something? An agent that
+// finishes by posing a question or listing choices is really waiting on you —
+// but Claude Code fires Stop (→ "done"), not a Notification (→ "waiting"), so
+// without this the pane never goes yellow until a ~60s idle reminder (if ever).
+// The hook uses this to reclassify such a "done" as an input wait. Conservative:
+// only enumerated choices (A:/1.) or a question at the very END of the message,
+// so a mid-message rhetorical "?" in an otherwise-finished turn won't trip it.
+const INPUT_TAIL = /(ますか|ですか|でしょうか|どれ|どちら|いずれ|ください|教えて|選んで)[。.!！\s"'」』）)]*$/;
+export const looksLikeInputRequest = (message) => {
+  const s = String(message || '').replace(/\s+$/, '');
+  if (!s) return false;
+  if (parseOptions(s)) return true; // the agent enumerated choices for you
+  const tail = (s.split('\n').filter((l) => l.trim()).pop() || s).trim();
+  if (/[?？]["'」』）)]*$/.test(tail)) return true; // ends on a question mark
+  return INPUT_TAIL.test(tail); // …or a Japanese interrogative ending
+};
+
 // Public entry. Called by the hook handler with already-parsed fields.
 // `alert` (default true) gates whether this event actually makes noise — sound,
 // spoken read-out, banner, highlight, and the waiting popup. When false the call

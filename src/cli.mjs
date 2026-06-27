@@ -5,7 +5,7 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { execSync, execFileSync } from 'node:child_process';
 import { providers, byId } from './providers/index.mjs';
-import { emit, summaryMaxChars } from './notify.mjs';
+import { emit, summaryMaxChars, looksLikeInputRequest } from './notify.mjs';
 import { deriveLabel, cliInvocation, isEphemeralInstall, controllingTty, liveAgentTtys } from './util.mjs';
 import { curatedVoices, resolveVoice, previewVoice } from './voices.mjs';
 import * as menubar from './menubar.mjs';
@@ -1221,10 +1221,18 @@ const cmds = {
     // Classify the event into a kind and honor the per-kind notification toggle.
     // A disabled kind still calls emit (to keep the waiting state correct), but
     // silently. SubagentStop arrives as event "subagent-done" → emit as "done".
-    const kind = classifyKind(event, ntype, isSubagent);
+    let kind = classifyKind(event, ntype, isSubagent);
+    let emitEvent = event === 'subagent-done' ? 'done' : event;
+    // A turn that ENDS by asking you something (a question or A/B choices) is
+    // really waiting on you, but Claude fires Stop (done), not a Notification —
+    // so without this the pane never goes yellow until a ~60s idle reminder.
+    // Reclassify such a main-turn "done" as an input wait so it lights up now.
+    if (emitEvent === 'done' && kind === 'done' && looksLikeInputRequest(message)) {
+      emitEvent = 'waiting';
+      kind = 'input';
+    }
     const alert = isNotifyKindEnabled(kind);
     const label = deriveLabel(cwd);
-    const emitEvent = event === 'subagent-done' ? 'done' : event;
     emit({ provider: byId(source) ? source : 'default', event: emitEvent, label, message, alert, kind });
   },
 
