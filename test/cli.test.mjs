@@ -174,3 +174,31 @@ test('gemini wire writes hooks then unwire removes them', () => {
   const left = [...(data.hooks.AfterAgent || []), ...(data.hooks.Notification || [])];
   assert.equal(left.length, 0, 'our hooks fully removed');
 });
+
+// Claude provider also wires SessionStart + UserPromptSubmit -> "active", the
+// signal that a pane is the user's focus (not waiting) — what clears a stale
+// yellow after the agent restarts. unwire must remove every one of ours.
+test('claude wire includes the SessionStart/UserPromptSubmit "active" hooks', () => {
+  const home = mkdtempSync(join(tmpdir(), 'ai-notify-claude-'));
+  mkdirSync(join(home, '.claude'), { recursive: true });
+  const settings = join(home, '.claude', 'settings.json');
+  writeFileSync(settings, JSON.stringify({ theme: 'dark' }));
+  const env = { ...process.env, HOME: home };
+
+  spawnSync(process.execPath, [CLI, 'init', '--only', 'claude'], { env, encoding: 'utf8' });
+  let data = JSON.parse(readFileSync(settings, 'utf8'));
+  assert.equal(data.theme, 'dark', 'unrelated keys preserved');
+  const wired = (event, kind) =>
+    (data.hooks[event] || []).some((g) => (g.hooks || []).some((h) => new RegExp(`--source claude --event ${kind}`).test(h.command)));
+  assert.ok(wired('Notification', 'waiting'), 'Notification -> waiting');
+  assert.ok(wired('Stop', 'done'), 'Stop -> done');
+  assert.ok(wired('SessionStart', 'active'), 'SessionStart -> active');
+  assert.ok(wired('UserPromptSubmit', 'active'), 'UserPromptSubmit -> active');
+
+  spawnSync(process.execPath, [CLI, 'uninstall', '--only', 'claude'], { env, encoding: 'utf8' });
+  data = JSON.parse(readFileSync(settings, 'utf8'));
+  const left = ['Notification', 'Stop', 'SessionStart', 'UserPromptSubmit', 'SubagentStop'].flatMap((e) =>
+    (data.hooks[e] || []).flatMap((g) => (g.hooks || []).filter((h) => /ai-notify|cli\.mjs/.test(h.command)))
+  );
+  assert.equal(left.length, 0, 'our hooks fully removed on unwire');
+});

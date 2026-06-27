@@ -9,8 +9,12 @@ const panes = () => [
   { tty: '/dev/ttys004', name: 'エックスサブスクライン', waiting: false, msg: '' },
 ];
 
-test('option: "<name>、Aを実行" selects numbered choice 1 by key, no Enter', () => {
-  const d = resolveCommand('ずんだもんアルファ、Aを実行', panes());
+// Every command must open with a wake word ("へい"). Without it the resolver
+// refuses to act — always-on mic otherwise injects ambient speech and ai-notify's
+// own read-aloud back into a pane.
+
+test('option: "へい <name>、Aを実行" selects numbered choice 1 by key, no Enter', () => {
+  const d = resolveCommand('へい ずんだもんアルファ、Aを実行', panes());
   assert.equal(d.ok, true);
   assert.equal(d.name, 'ずんだもんアルファ');
   assert.equal(d.action, 'option');
@@ -19,31 +23,31 @@ test('option: "<name>、Aを実行" selects numbered choice 1 by key, no Enter',
 });
 
 test('option: spaces instead of a comma still parse', () => {
-  const d = resolveCommand('ずんだもんアルファ Bを実行', panes());
+  const d = resolveCommand('へい ずんだもんアルファ Bを実行', panes());
   assert.equal(d.action, 'option');
   assert.equal(d.text, '2'); // B -> 2
 });
 
 test('option: Japanese "2番" reading maps to choice 2', () => {
-  const d = resolveCommand('ずんだもんアルファ、2番', panes());
+  const d = resolveCommand('へい ずんだもんアルファ、2番', panes());
   assert.equal(d.action, 'option');
   assert.equal(d.text, '2');
 });
 
 test('shortcut: "はい" approves with Enter (default-highlighted choice)', () => {
-  const d = resolveCommand('ずんだもんアルファ、はい', panes());
+  const d = resolveCommand('へい ずんだもんアルファ、はい', panes());
   assert.equal(d.action, 'shortcut');
   assert.equal(d.text, '');
   assert.deepEqual(d.keys, ['Enter']);
 });
 
 test('shortcut: "却下" / "いいえ" cancels with Escape', () => {
-  assert.deepEqual(resolveCommand('ずんだもんアルファ、却下', panes()).keys, ['Escape']);
-  assert.deepEqual(resolveCommand('ずんだもんアルファ、いいえ', panes()).keys, ['Escape']);
+  assert.deepEqual(resolveCommand('へい ずんだもんアルファ、却下', panes()).keys, ['Escape']);
+  assert.deepEqual(resolveCommand('へい ずんだもんアルファ、いいえ', panes()).keys, ['Escape']);
 });
 
 test('freeform: dictation is typed verbatim and submitted with Enter', () => {
-  const d = resolveCommand('ずんだもんアルファ、テストを実行して', panes());
+  const d = resolveCommand('へい ずんだもんアルファ、テストを実行して', panes());
   assert.equal(d.action, 'freeform');
   assert.equal(d.text, 'テストを実行して');
   assert.deepEqual(d.keys, ['Enter']);
@@ -52,13 +56,13 @@ test('freeform: dictation is typed verbatim and submitted with Enter', () => {
 test('freeform: spaces and case in a multi-word command are preserved', () => {
   // norm() drops spaces for matching, but the typed body must keep them, or
   // "echo hello world" would become "echohelloworld".
-  const d = resolveCommand('ずんだもんアルファ echo Hello World', panes());
+  const d = resolveCommand('へい ずんだもんアルファ echo Hello World', panes());
   assert.equal(d.action, 'freeform');
   assert.equal(d.text, 'echo Hello World');
 });
 
 test('routes to a NAMED pane even when it is not currently waiting', () => {
-  const d = resolveCommand('エックスサブスクライン、リファクタして', panes());
+  const d = resolveCommand('へい エックスサブスクライン、リファクタして', panes());
   assert.equal(d.ok, true);
   assert.equal(d.tty, '/dev/ttys004');
   assert.equal(d.action, 'freeform');
@@ -69,25 +73,27 @@ test('longest name wins: "ずんだもんアルファ" beats a "ずんだもん"
     { tty: 'a', name: 'ずんだもん', waiting: true, msg: '' },
     { tty: 'b', name: 'ずんだもんアルファ', waiting: true, msg: '' },
   ];
-  assert.equal(resolveCommand('ずんだもんアルファ、はい', ps).tty, 'b');
+  assert.equal(resolveCommand('へい ずんだもんアルファ、はい', ps).tty, 'b');
 });
 
-test('no name + a single waiting pane: use it, but at lower confidence', () => {
+test('NO wake word: refuses to act, even with a sole waiting pane', () => {
+  // The feedback-loop guard: ambient speech / read-aloud that happens to name a
+  // pane (or names nothing at all) must NOT be injected.
   const ps = [{ tty: 'solo', name: 'みどり', waiting: true, msg: '' }];
-  const d = resolveCommand('テストして', ps);
-  assert.equal(d.ok, true);
-  assert.equal(d.tty, 'solo');
-  assert.ok(d.confidence <= 0.6, `expected low confidence, got ${d.confidence}`);
+  assert.equal(resolveCommand('テストして', ps).ok, false);              // no name, no wake
+  assert.equal(resolveCommand('みどり、テストして', ps).ok, false);       // names a pane but no wake
+  assert.equal(resolveCommand('完了しました', ps).ok, false);            // read-aloud feedback
+  assert.equal(resolveCommand('テストして', ps).action, 'no-wake');
 });
 
-test('no name + multiple waiting panes: ambiguous, does NOT act', () => {
+test('no name after the wake word: does NOT act', () => {
   const ps = [
     { tty: 'a', name: 'alpha', waiting: true, msg: '' },
     { tty: 'b', name: 'beta', waiting: true, msg: '' },
   ];
-  const d = resolveCommand('テストして', ps);
+  const d = resolveCommand('へい こんにちは', ps);
   assert.equal(d.ok, false);
-  assert.equal(d.action, 'ambiguous');
+  assert.equal(d.action, 'no-target');
 });
 
 test('empty utterance fails cleanly', () => {
@@ -97,19 +103,19 @@ test('empty utterance fails cleanly', () => {
 
 test('panes with empty names never match a non-empty utterance', () => {
   // Guard against `''.includes('')` false positives: two unnamed, non-waiting
-  // panes give no name match, no sole-pane fallback, and nothing waiting.
+  // panes give no name match even with a wake word.
   const ps = [
     { tty: 'x', name: '', waiting: false, msg: '' },
     { tty: 'y', name: '', waiting: false, msg: '' },
   ];
-  const d = resolveCommand('ずんだもん、はい', ps);
+  const d = resolveCommand('へい ずんだもん、はい', ps);
   assert.equal(d.ok, false);
 });
 
 test('named option selection picks up an explicit menu label', () => {
   const opts = parseOptions('A: PR作成 B: テスト実行');
   const ps = [{ tty: 't', name: 'alpha', waiting: true, msg: 'A: PR作成 B: テスト実行', options: opts }];
-  const d = resolveCommand('alpha、Bを実行', ps);
+  const d = resolveCommand('へい alpha、Bを実行', ps);
   assert.equal(d.action, 'option');
   assert.match(d.label, /テスト実行/);
 });
@@ -121,11 +127,11 @@ test('option with explicit keys (permission template) injects those keys, not th
     { key: 'B', label: '拒否', keys: ['Escape'] },
   ];
   const ps = [{ tty: 't', name: 'ずんだもんアルファ', waiting: true, msg: '', options }];
-  const a = resolveCommand('ずんだもんアルファ、Aを実行', ps);
+  const a = resolveCommand('へい ずんだもんアルファ、Aを実行', ps);
   assert.equal(a.action, 'option');
   assert.equal(a.text, '');
   assert.deepEqual(a.keys, ['Enter']);
-  const b = resolveCommand('ずんだもんアルファ、Bを実行', ps);
+  const b = resolveCommand('へい ずんだもんアルファ、Bを実行', ps);
   assert.deepEqual(b.keys, ['Escape']);
 });
 
@@ -158,9 +164,9 @@ test('wake word + name-first: a command containing another pane name does not hi
 
 test('kana folding: katakana name matches a hiragana utterance and vice versa', () => {
   const ps = [{ tty: 'b', name: 'ジョン', waiting: true, msg: '' }];
-  assert.equal(resolveCommand('じょん、はい', ps).tty, 'b'); // said hiragana, named katakana
+  assert.equal(resolveCommand('へい じょん、はい', ps).tty, 'b'); // said hiragana, named katakana
   const ps2 = [{ tty: 'c', name: 'じょん', waiting: true, msg: '' }];
-  assert.equal(resolveCommand('ジョン、はい', ps2).tty, 'c'); // said katakana, named hiragana
+  assert.equal(resolveCommand('へい ジョン、はい', ps2).tty, 'c'); // said katakana, named hiragana
 });
 
 test('decomposed (NFD) dictation: voiced kana in the name still routes + keeps the command', () => {
@@ -186,9 +192,24 @@ test('voicing-fold: a mis-voiced name ("ポール"→"ボール") still routes',
   assert.equal(d.text, 'ステータスを出して');
 });
 
+test('romaji fold: whisper romanizing a name ("ジョン"→"John") still routes', () => {
+  // Real speech romanizes a Japanese name when an English command follows it
+  // ("Hey John Git status…"). The romaji fold makes "John"/"Jon" == じょん, and
+  // "go"/"ok" in the command must NOT be mistaken for an affirmation (normLite).
+  const ps = [{ tty: 'b', name: 'ジョン', waiting: false, msg: '' }];
+  const a = resolveCommand('Hey John Git statusを表示。', ps);
+  assert.equal(a.ok, true);
+  assert.equal(a.tty, 'b');
+  assert.equal(a.action, 'freeform');
+  assert.match(a.text, /Git status/);
+  const b = resolveCommand('Hey Jon、コミットして', ps);
+  assert.equal(b.action, 'freeform'); // not a "go"→承認 false positive
+  assert.equal(b.text, 'コミットして');
+});
+
 test('the particle 「に」 is not mistaken for option 2', () => {
   // "にげて" (run away) must stay free-form, not select choice 2.
-  const d = resolveCommand('ずんだもんアルファ、にげて', panes());
+  const d = resolveCommand('へい ずんだもんアルファ、にげて', panes());
   assert.equal(d.action, 'freeform');
   assert.equal(d.text, 'にげて');
 });

@@ -13,7 +13,7 @@ import { execFileSync } from 'node:child_process';
 import { writeFileSync, readFileSync, existsSync, rmSync, mkdirSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { stateDir } from './state.mjs';
-import { panesByTty } from './tmux.mjs';
+import { panesByTty, tmuxBin } from './tmux.mjs';
 
 const isMac = process.platform === 'darwin';
 const BEL = '\x07';
@@ -72,7 +72,7 @@ const tmuxSet = (c) => {
   if (!pane) return;
   const color = c && c.startsWith('#') ? c : colorHex(c);
   try {
-    execFileSync('tmux', ['select-pane', '-t', pane, '-P', `bg=${color}`]);
+    execFileSync(tmuxBin(), ['select-pane', '-t', pane, '-P', `bg=${color}`]);
   } catch {
     /* ignore */
   }
@@ -81,7 +81,7 @@ const tmuxReset = () => {
   const pane = tmuxPane();
   if (!pane) return;
   try {
-    execFileSync('tmux', ['select-pane', '-t', pane, '-P', 'bg=default']);
+    execFileSync(tmuxBin(), ['select-pane', '-t', pane, '-P', 'bg=default']);
   } catch {
     /* ignore */
   }
@@ -282,12 +282,33 @@ export const sweepStaleHighlights = (waitingTtys = []) => {
     const mark = markPath(tty);
     if (!existsSync(mark)) continue; // we didn't highlight this pane
     try {
-      execFileSync('tmux', ['select-pane', '-t', info.paneId, '-P', 'bg=default']);
+      execFileSync(tmuxBin(), ['select-pane', '-t', info.paneId, '-P', 'bg=default']);
     } catch {
-      /* ignore */
+      // Reset failed (e.g. tmux unreachable) — keep the marker so a later sweep
+      // retries, instead of dropping it and orphaning the tint forever.
+      continue;
     }
     try {
       rmSync(mark);
+    } catch {
+      /* ignore */
+    }
+  }
+};
+
+// Force-clear THIS pane's highlight even with no saved marker. The normal
+// marker-guarded clearHighlight/sweep skip an ORPHANED tint (background set, but
+// the marker was lost — e.g. a failed reset dropped it) and leave the pane stuck
+// amber: the "yellow when NOT waiting" bug. Called when the pane is known active
+// (a new session started, or the user submitted a prompt), so resetting is safe.
+export const forceClearHighlight = () => {
+  writeTty(oscReset);
+  tmuxReset(); // unconditional reset of $TMUX_PANE's background
+  const tty = ttyName();
+  if (isAppleTerminal() && tty && existsSync(savePath(tty))) appleReset();
+  if (tty) {
+    try {
+      if (existsSync(markPath(tty))) rmSync(markPath(tty));
     } catch {
       /* ignore */
     }

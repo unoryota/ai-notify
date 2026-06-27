@@ -21,7 +21,7 @@ import { existsSync } from 'node:fs';
 // command "lands" (routes fine) but silently injects nothing. Probe the common
 // install locations first, then fall back to PATH, and cache the result.
 let TMUX_BIN;
-const tmuxBin = () => {
+export const tmuxBin = () => {
   if (TMUX_BIN) return TMUX_BIN;
   const candidates = [
     '/opt/homebrew/bin/tmux', // Homebrew (Apple Silicon)

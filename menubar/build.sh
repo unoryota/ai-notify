@@ -23,7 +23,10 @@ if swiftc -target x86_64-apple-macos11 -typecheck "$SRC" >/dev/null 2>&1; then
 fi
 
 echo "compiling $BIN_NAME ..."
-swiftc -O "${ARCH_FLAGS[@]}" -o "$APP/Contents/MacOS/$BIN_NAME" "$SRC"
+# -import-objc-header pulls in ExceptionCatch.h (ainTry) so Swift can catch the
+# NSException AVAudioNode.installTap raises mid device-transition, instead of
+# aborting the app (the AirPods crash).
+swiftc -O "${ARCH_FLAGS[@]}" -import-objc-header "$HERE/ExceptionCatch.h" -o "$APP/Contents/MacOS/$BIN_NAME" "$SRC"
 
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -41,7 +44,6 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>LSUIElement</key><true/>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSMicrophoneUsageDescription</key><string>音声で待機中のAIエージェントへ指示を出すためにマイクを使用します。</string>
-  <key>NSSpeechRecognitionUsageDescription</key><string>話しかけた指示を文字に起こし、対象のエージェントへ届けるために音声認識を使用します。</string>
 </dict>
 </plist>
 PLIST
