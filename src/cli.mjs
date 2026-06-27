@@ -10,7 +10,7 @@ import { deriveLabel, cliInvocation, isEphemeralInstall, controllingTty, liveAge
 import { curatedVoices, resolveVoice, previewVoice } from './voices.mjs';
 import * as menubar from './menubar.mjs';
 import { translate } from './translate.mjs';
-import { diagnose as highlightDiagnose, clearHighlight } from './highlight.mjs';
+import { diagnose as highlightDiagnose, clearHighlight, forceClearHighlight, sweepStaleHighlights } from './highlight.mjs';
 import * as voicevox from './voicevox.mjs';
 import * as tsundere from './tsundere.mjs';
 import * as war from './war.mjs';
@@ -38,6 +38,7 @@ import {
   readPaneSetting,
   readAllPaneSettings,
   readWaiting,
+  setPaneWaiting,
   updatePaneSetting,
   firstRunNudge,
   isPopupEnabled,
@@ -1182,6 +1183,18 @@ const cmds = {
     let message = '';
     let ntype = '';
     let isSubagent = false;
+
+    // "active": this pane is the user's focus (a session started, or a prompt was
+    // just submitted) — it is NOT waiting. Clear any stale waiting + highlight so a
+    // pane can't stay yellow after the agent restarts. Force-clears even with no
+    // marker, to mop up an orphaned tint. Silent (no sound/banner), then we're done.
+    if (event === 'active') {
+      const tty = controllingTty();
+      if (tty) setPaneWaiting(tty, false, '');
+      try { forceClearHighlight(); } catch { /* visual is best-effort */ }
+      try { sweepStaleHighlights(Object.keys(readWaiting())); } catch { /* best-effort */ }
+      return;
+    }
 
     if (source === 'codex') {
       // Codex passes a single JSON argument.

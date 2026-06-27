@@ -163,6 +163,9 @@ test('e2e: hook (done with transcript) + waiting, fully silent paths', () => {
   // gemini shape: AfterAgent -> done (message in prompt_response), Notification -> waiting
   ok(['hook', '--event', 'done', '--source', 'gemini'], JSON.stringify({ prompt_response: 'all set', cwd: sandbox }));
   ok(['hook', '--event', 'waiting', '--source', 'gemini'], JSON.stringify({ notification_type: 'tool_confirmation', message: 'Allow write_file?', cwd: sandbox }));
+  // "active" (SessionStart / UserPromptSubmit): clears stale waiting + highlight,
+  // silently. Must exit 0 even with no tmux server / no controlling tty.
+  ok(['hook', '--event', 'active', '--source', 'claude'], JSON.stringify({ cwd: sandbox }));
 });
 
 test('e2e: translate off + menubar status (read-only)', () => {

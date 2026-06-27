@@ -47,7 +47,17 @@ const entry = (node, cliPath, event) => ({
 // SubagentStop lets the user (optionally) be alerted when a sub-agent finishes,
 // distinctly from the main turn's Stop. Off by default (see notify kinds), but
 // wired so the toggle works. Only the CORE events count toward "wired" status.
-const EVENTS = { Notification: 'waiting', Stop: 'done', SubagentStop: 'subagent-done' };
+// SessionStart / UserPromptSubmit fire when the pane is the user's focus (a new
+// session, or a prompt just submitted) → "active": the pane is definitively NOT
+// waiting, so clearing any stale waiting + highlight here is what stops a pane
+// staying yellow after the agent restarts (the "yellow when not waiting" bug).
+const EVENTS = {
+  Notification: 'waiting',
+  Stop: 'done',
+  SubagentStop: 'subagent-done',
+  SessionStart: 'active',
+  UserPromptSubmit: 'active',
+};
 const CORE_EVENTS = ['Notification', 'Stop'];
 
 export const status = () => {
