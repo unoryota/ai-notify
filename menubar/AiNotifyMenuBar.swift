@@ -161,6 +161,16 @@ enum State {
         else { try? fm.removeItem(atPath: p) }
     }
 
+    // Show the floating "what I heard" caption. ON by default (the presence of a
+    // `caption-off` flag file disables it) — it's the at-a-glance recognition
+    // feedback for non-engineers who'd never tail the log.
+    static var captionEnabled: Bool { !FileManager.default.fileExists(atPath: file("caption-off")) }
+    static func setCaption(_ on: Bool) {
+        let p = file("caption-off"), fm = FileManager.default
+        if on { try? fm.removeItem(atPath: p) }
+        else { try? fm.createDirectory(atPath: dir(), withIntermediateDirectories: true); fm.createFile(atPath: p, contents: Data()) }
+    }
+
     // Normalize for loose name matching (mirror route.mjs norm: drop spaces +
     // punctuation, fold katakana→hiragana so ジョン==じょん, lowercase). Just enough
     // for a wake-word containment check.
@@ -455,6 +465,102 @@ final class PopupCard: NSObject {
     }
 }
 
+// A transient floating caption that echoes what the mic just heard, so a NON-
+// engineer can SEE their speech was recognized — no log tailing. Shows "聞いて
+// います…" while capturing, then the transcript + outcome (sent / not-a-command /
+// unclear), colour-coded, then fades out on its own. Click-through (never steals
+// focus or blocks what's underneath).
+final class CaptionWindow: NSObject {
+    private let panel: NSPanel
+    private let card = NSView()
+    private let statusLabel = NSTextField(labelWithString: "")
+    private let textLabel = NSTextField(wrappingLabelWithString: "")
+    private var hideTimer: Timer?
+
+    override init() {
+        panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 440, height: 88),
+                        styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        super.init()
+        panel.isFloatingPanel = true
+        panel.becomesKeyOnlyIfNeeded = true
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.level = .floating
+        panel.hasShadow = true
+        panel.ignoresMouseEvents = true
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+
+        card.frame = NSRect(x: 0, y: 0, width: 440, height: 88)
+        card.wantsLayer = true
+        card.layer?.cornerRadius = 18
+        card.layer?.backgroundColor = NSColor(calibratedWhite: 0.08, alpha: 0.92).cgColor
+        card.layer?.borderWidth = 2
+
+        statusLabel.frame = NSRect(x: 20, y: 52, width: 400, height: 24)
+        statusLabel.font = .systemFont(ofSize: 16, weight: .bold)
+        statusLabel.backgroundColor = .clear
+        statusLabel.isBordered = false
+        card.addSubview(statusLabel)
+
+        textLabel.frame = NSRect(x: 20, y: 10, width: 400, height: 40)
+        textLabel.font = .systemFont(ofSize: 18, weight: .semibold)
+        textLabel.textColor = .white
+        textLabel.maximumNumberOfLines = 2
+        textLabel.backgroundColor = .clear
+        textLabel.isBordered = false
+        card.addSubview(textLabel)
+
+        panel.contentView = card
+    }
+
+    private func position() {
+        guard let screen = NSScreen.main else { return }
+        let f = panel.frame
+        panel.setFrameOrigin(NSPoint(x: screen.frame.midX - f.width / 2, y: screen.frame.minY + 130))
+    }
+
+    private func show(_ status: String, _ color: NSColor, text: String, seconds: TimeInterval) {
+        statusLabel.stringValue = status
+        statusLabel.textColor = color
+        card.layer?.borderColor = color.withAlphaComponent(0.85).cgColor
+        textLabel.stringValue = text
+        textLabel.isHidden = text.isEmpty
+        position()
+        panel.alphaValue = 1
+        panel.orderFrontRegardless()
+        hideTimer?.invalidate()
+        if seconds > 0 {
+            hideTimer = Timer.scheduledTimer(withTimeInterval: seconds, repeats: false) { [weak self] _ in self?.fadeOut() }
+        }
+    }
+
+    // Live "I'm hearing you" while the utterance is being captured.
+    func listening() { show("🎙 聞いています…", .systemTeal, text: "", seconds: 0) }
+    // Recognized AND delivered to a pane.
+    func sent(_ who: String, _ heard: String) {
+        show("✅ " + (who.isEmpty ? "送信しました" : "\(who) に送信"), .systemGreen, text: "「\(heard)」", seconds: 5)
+    }
+    // Recognized, but no wake word — just ambient/non-command speech.
+    func heard(_ heard: String) { show("👂 聞こえました（指示ではありません）", NSColor(white: 0.8, alpha: 1), text: "「\(heard)」", seconds: 3) }
+    // Addressed but the name/command wasn't understood.
+    func unclear(_ heard: String) { show("🤔 もう一度（「ヘイ 名前、…」）", .systemOrange, text: heard.isEmpty ? "" : "「\(heard)」", seconds: 4) }
+    // Recognized fine, but couldn't be delivered — show reply's own reason line
+    // (🤔 the named pane has no live tmux pane, ⚠️ injection failed, …).
+    func reason(_ line: String, _ heard: String) {
+        let color: NSColor = line.hasPrefix("⚠️") ? .systemRed : .systemOrange
+        show(line, color, text: heard.isEmpty ? "" : "「\(heard)」", seconds: 6)
+    }
+
+    private func fadeOut() {
+        NSAnimationContext.runAnimationGroup({ ctx in
+            ctx.duration = 0.4
+            panel.animator().alphaValue = 0
+        }, completionHandler: { [weak self] in self?.panel.orderOut(nil) })
+    }
+
+    func hide() { hideTimer?.invalidate(); panel.orderOut(nil) }
+}
+
 // One settings row: a label (or checkbox) + a slider + an editable numeric field,
 // kept on a single shared grid so every row lines up. The slider and the field
 // stay in sync; both call `onChange`.
@@ -610,7 +716,20 @@ final class SettingsWindowController: NSObject {
             self.rows.append(r) // retain
             y -= 36
         }
+
+        // Voice-input section: a plain on/off checkbox for the floating recognition
+        // caption (the at-a-glance "what I heard" overlay for non-engineers).
+        let vsep = NSBox(frame: NSRect(x: 12, y: 44, width: 446, height: 1)); vsep.boxType = .separator; content.addSubview(vsep)
+        let capCb = NSButton(checkboxWithTitle: "🎙 認識した言葉を画面に字幕で表示する", target: self, action: #selector(toggleCaptionSetting(_:)))
+        capCb.frame = NSRect(x: 16, y: 14, width: 440, height: 22)
+        capCb.state = State.captionEnabled ? .on : .off
+        content.addSubview(capCb)
+
         w.contentView = content
+    }
+
+    @objc private func toggleCaptionSetting(_ sender: NSButton) {
+        State.setCaption(sender.state == .on)
     }
 
     private var rows: [SettingsRow] = []
@@ -670,6 +789,12 @@ final class VoiceListener: NSObject {
     private var tapInstalled = false
     private var generation = 0 // bumped on disable; a late transcription with a stale gen is dropped
     private var loggedAudioOnce = false
+
+    // UI feedback hooks (set by AppDelegate) — drive the floating caption. Always
+    // invoked on the main thread. onListening: an utterance just started capturing.
+    // onResult(kind, who, heard): kind ∈ "sent" | "heard" | "unclear".
+    var onListening: (() -> Void)?
+    var onResult: ((String, String, String) -> Void)?
 
     // Self-healing. AVAudioEngine silently STOPS on an I/O configuration change —
     // an output device swap (AirPods), a sample-rate change, sleep/wake, or the
@@ -927,6 +1052,7 @@ final class VoiceListener: NSObject {
                 voicedSamples = frame.count
                 silentSamples = 0
                 uttPeak = rms
+                DispatchQueue.main.async { [weak self] in self?.onListening?() } // "🎙 聞いています…"
             }
         } else {
             captured.append(contentsOf: frame)
@@ -1007,10 +1133,30 @@ final class VoiceListener: NSObject {
             sem.signal()
         }.resume()
         _ = sem.wait(timeout: .now() + 31)
-        // Strip whisper's bracketed non-speech tokens ([BLANK_AUDIO], (笑)).
-        return result?
+        // Strip whisper's bracketed non-speech tokens ([BLANK_AUDIO], (笑)), then
+        // drop the whole utterance if what's left is a known silence hallucination
+        // — returning "" makes the caller log "(no speech)" and reply nothing.
+        let cleaned = (result ?? "")
             .replacingOccurrences(of: "\\[[^\\]]*\\]", with: "", options: .regularExpression)
             .replacingOccurrences(of: "\\([^)]*\\)", with: "", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if Self.isHallucination(cleaned) {
+            if !cleaned.isEmpty { State.voiceLog("dropped hallucination: \"\(cleaned)\"") }
+            return ""
+        }
+        return cleaned
+    }
+
+    // whisper's large-v3 family fills near-silence / noise with a few stock
+    // phrases from its training data — overwhelmingly the YouTube outro "ご視聴
+    // ありがとうございました" and its kin (channel-subscribe nags, "ご清聴…"). None is
+    // ever a voice command, so an utterance carrying one of these tell-tale stems
+    // is noise: drop it. Matched on a stem (not the whole string) to ride over
+    // whisper's punctuation/spacing variants. Deliberately conservative — bare
+    // "ありがとう" or "はい" stay (the latter is a wake word), so real speech survives.
+    private static let hallucinationStems = ["ご視聴", "ご清聴", "ご覧いただき", "チャンネル登録", "高評価"]
+    static func isHallucination(_ text: String) -> Bool {
+        text.isEmpty || hallucinationStems.contains { text.contains($0) }
     }
 
     // Spawn whisper-server (if not already up) and wait until it answers. Reuses a
@@ -1021,7 +1167,11 @@ final class VoiceListener: NSObject {
         if !(serverProc?.isRunning ?? false) {
             let p = Process()
             p.executableURL = URL(fileURLWithPath: serverBin)
-            p.arguments = ["-m", modelPath, "-l", "ja", "-t", "8", "--host", "127.0.0.1", "--port", "\(port)"]
+            // -nf: no temperature fallback — keep decoding at temp 0 so a failed
+            // decode stays failed instead of retrying hot and emitting a confident
+            // hallucination. -sns: suppress non-speech tokens. Both blunt the
+            // "ご視聴…" noise output at the source (the text denylist is the backstop).
+            p.arguments = ["-m", modelPath, "-l", "ja", "-t", "8", "-nf", "-sns", "--host", "127.0.0.1", "--port", "\(port)"]
             p.standardOutput = Pipe(); p.standardError = Pipe()
             do { try p.run(); serverProc = p; State.voiceLog("whisper-server starting…") }
             catch { State.voiceLog("server spawn failed: \(error.localizedDescription)"); return false }
@@ -1084,10 +1234,31 @@ final class VoiceListener: NSObject {
         guard !t.isEmpty else { return }
         let addressed = State.utteranceAddressesPane(t)
         State.voiceLog("heard: \"\(t)\"  addressed=\(addressed ? "yes" : "no")")
-        guard addressed else { return }
+        guard addressed else { onResult?("heard", "", t); return } // 👂 caption only
         let out = (State.cli(["reply", t], capture: true) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         State.voiceLog("reply: \(out)")
-        if out.hasPrefix("✅") { NSSound(named: "Tink")?.play() }
+        if out.hasPrefix("✅") {
+            NSSound(named: "Tink")?.play()
+            onResult?("sent", Self.replyName(out), t)
+        } else if !out.isEmpty {
+            // reply explained WHY it couldn't run (🤔 pane offline / command not
+            // understood, ⚠️ inject failed). Surface that exact reason instead of a
+            // generic "say it again" — otherwise a recognized command looks ignored.
+            onResult?("reason", out, t)
+        } else {
+            onResult?("unclear", "", t)
+        }
+    }
+
+    // Pull the pane name out of a reply line: "✅ ジョン (%4) → 「…」を入力" → "ジョン".
+    private static func replyName(_ out: String) -> String {
+        var s = out
+        if s.hasPrefix("✅") { s.removeFirst() }
+        s = s.trimmingCharacters(in: .whitespaces)
+        for sep in [" (", " →", "("] {
+            if let r = s.range(of: sep) { return String(s[..<r.lowerBound]).trimmingCharacters(in: .whitespaces) }
+        }
+        return s
     }
 }
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -1095,6 +1266,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var timer: Timer?
     private let settings = SettingsWindowController()
     private let voice = VoiceListener()
+    private let caption = CaptionWindow()
 
     // The "waiting for input" popup — one floating card per waiting pane.
     private var waitingCards: [String: PopupCard] = [:] // keyed by tty
@@ -1125,6 +1297,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             self?.render()
             self?.updateWaitingPopup()
+        }
+        // Floating recognition caption: echo what the mic heard so a non-engineer
+        // can SEE it's working (no log tailing). Gated by the menu toggle.
+        voice.onListening = { [weak self] in if State.captionEnabled { self?.caption.listening() } }
+        voice.onResult = { [weak self] kind, who, heard in
+            guard State.captionEnabled else { return }
+            switch kind {
+            case "sent": self?.caption.sent(who, heard)
+            case "reason": self?.caption.reason(who, heard) // `who` carries reply's reason line
+            case "unclear": self?.caption.unclear(heard)
+            default: self?.caption.heard(heard)
+            }
         }
         // Resume the mic wake-word loop if it was left on (clear the flag if the
         // permission was since revoked, so the menu reflects reality).
@@ -1537,6 +1721,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let code = item.representedObject as? String { State.cli(["voice-lang", code]) }
     }
 
+    // Show/hide the floating recognition caption.
+    @objc private func toggleCaption(_ sender: NSMenuItem) {
+        State.setCaption(!State.captionEnabled)
+        if !State.captionEnabled { caption.hide() }
+    }
+
     // Flip the mic wake-word loop on/off. Enabling is async (permission prompts);
     // the flag is only persisted once it actually starts, and a denial shows why.
     @objc private func toggleVoiceInput(_ sender: NSMenuItem) {
@@ -1755,6 +1945,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         langParent.submenu = langSub
         menu.addItem(langParent)
+
+        // Floating caption that shows what was just recognized (on by default).
+        let capItem = NSMenuItem(title: "　📝 認識した言葉を画面に表示", action: #selector(toggleCaption(_:)), keyEquivalent: "")
+        capItem.target = self
+        capItem.state = State.captionEnabled ? .on : .off
+        menu.addItem(capItem)
 
         menu.addItem(.separator())
         // Waiting-for-input popup: enable + when-to-show settings, all in a submenu.
