@@ -171,6 +171,31 @@ enum State {
         else { try? fm.createDirectory(atPath: dir(), withIntermediateDirectories: true); fm.createFile(atPath: p, contents: Data()) }
     }
 
+    // Push-to-talk: capture only while the talk key is held (no false triggers from
+    // ambient speech / our own read-aloud). OFF by default (always-on VAD).
+    static var pushToTalk: Bool { FileManager.default.fileExists(atPath: file("push-to-talk")) }
+    static func setPushToTalk(_ on: Bool) {
+        let p = file("push-to-talk"), fm = FileManager.default
+        if on { try? fm.createDirectory(atPath: dir(), withIntermediateDirectories: true); fm.createFile(atPath: p, contents: Data()) }
+        else { try? fm.removeItem(atPath: p) }
+    }
+    // The talk key's keyCode; default 63 = Fn (Mac-natural). ai-notify runs in the
+    // background, so PTT uses a GLOBAL key monitor (needs Input Monitoring perm).
+    static var pttKeyCode: Int {
+        (try? String(contentsOfFile: file("ptt-keycode"), encoding: .utf8)).flatMap { Int($0.trimmingCharacters(in: .whitespacesAndNewlines)) } ?? 63
+    }
+    static func setPTTKeyCode(_ code: Int) {
+        try? FileManager.default.createDirectory(atPath: dir(), withIntermediateDirectories: true)
+        try? "\(code)".write(toFile: file("ptt-keycode"), atomically: true, encoding: .utf8)
+    }
+    // Live partial captions while speaking. ON by default (a `partial-off` flag disables).
+    static var partialCaptions: Bool { !FileManager.default.fileExists(atPath: file("partial-off")) }
+    static func setPartialCaptions(_ on: Bool) {
+        let p = file("partial-off"), fm = FileManager.default
+        if on { try? fm.removeItem(atPath: p) }
+        else { try? fm.createDirectory(atPath: dir(), withIntermediateDirectories: true); fm.createFile(atPath: p, contents: Data()) }
+    }
+
     // Normalize for loose name matching (mirror route.mjs norm: drop spaces +
     // punctuation, fold katakana→hiragana so ジョン==じょん, lowercase). Just enough
     // for a wake-word containment check.
@@ -536,6 +561,8 @@ final class CaptionWindow: NSObject {
 
     // Live "I'm hearing you" while the utterance is being captured.
     func listening() { show("🎙 聞いています…", .systemTeal, text: "", seconds: 0) }
+    // Live interim transcript while the user is still speaking (no auto-hide).
+    func partial(_ text: String) { show("🎙 認識中…", .systemTeal, text: "「\(text)…」", seconds: 0) }
     // Recognized AND delivered to a pane.
     func sent(_ who: String, _ heard: String) {
         show("✅ " + (who.isEmpty ? "送信しました" : "\(who) に送信"), .systemGreen, text: "「\(heard)」", seconds: 5)
@@ -795,6 +822,21 @@ final class VoiceListener: NSObject {
     // onResult(kind, who, heard): kind ∈ "sent" | "heard" | "unclear".
     var onListening: (() -> Void)?
     var onResult: ((String, String, String) -> Void)?
+    var onPartial: ((String) -> Void)?   // interim transcript while still speaking
+
+    // Push-to-talk. `pushToTalk` gates capture on `talkActive` (the talk key, set
+    // from the app on the main thread). Bool read/write is atomic enough here.
+    var pushToTalk = false
+    private var talkActive = false
+    func setPushToTalk(_ on: Bool) { pushToTalk = on }
+    func setTalkActive(_ on: Bool) { talkActive = on }
+
+    // Live partial captions: re-transcribe the growing utterance periodically.
+    private var lastPartialSample = 0
+    private var partialInFlight = false
+    private var lastPartialText = ""
+    private let partialInterval = 12000   // ~0.75s of new audio between interim decodes
+    private let partialMinVoiced = 12800  // ~0.8s voiced before the first interim
 
     // Self-healing. AVAudioEngine silently STOPS on an I/O configuration change —
     // an output device swap (AirPods), a sample-rate change, sleep/wake, or the
@@ -843,6 +885,8 @@ final class VoiceListener: NSObject {
         guard FileManager.default.fileExists(atPath: modelPath) else {
             completion(false, "音声モデルがありません: \(modelPath)"); return
         }
+        pushToTalk = State.pushToTalk
+        talkActive = false
         requestMic { granted in
             State.voiceLog("mic granted: \(granted)")
             guard granted else { completion(false, "マイクの許可が必要です（システム設定 › プライバシー）"); return }
@@ -1006,6 +1050,13 @@ final class VoiceListener: NSObject {
             if !preRoll.isEmpty { preRoll.removeAll() }
             return
         }
+        // Push-to-talk gate: while the talk key is up, drop audio. If we were mid-
+        // utterance (key just released), finalize and transcribe what we captured.
+        if pushToTalk && !talkActive {
+            if capturing { finalizeCurrentUtterance() }
+            if !preRoll.isEmpty { preRoll.removeAll() }
+            return
+        }
         let ratio = outFormat.sampleRate / buf.format.sampleRate
         let cap = AVAudioFrameCount(Double(buf.frameLength) * ratio + 32)
         guard let out = AVAudioPCMBuffer(pcmFormat: outFormat, frameCapacity: cap) else { return }
@@ -1052,6 +1103,8 @@ final class VoiceListener: NSObject {
                 voicedSamples = frame.count
                 silentSamples = 0
                 uttPeak = rms
+                lastPartialSample = 0
+                lastPartialText = ""
                 DispatchQueue.main.async { [weak self] in self?.onListening?() } // "🎙 聞いています…"
             }
         } else {
@@ -1067,11 +1120,46 @@ final class VoiceListener: NSObject {
             let endThresh = max(release, uttPeak * 0.18)
             if rms > endThresh { voicedSamples += frame.count; silentSamples = 0 }
             else { silentSamples += frame.count }
-            if silentSamples >= endpointSilence || captured.count >= maxUtterance {
-                let utt = captured
-                let voiced = voicedSamples
-                capturing = false; captured = []; preRoll = []; voicedSamples = 0; silentSamples = 0; uttPeak = 0
-                if voiced >= minVoiced { transcribe(utt) }
+            maybeEmitPartial()
+            // In push-to-talk, only the key release (or the hard cap) ends the
+            // utterance — a mid-sentence pause shouldn't cut it off.
+            let silenceEnded = !pushToTalk && silentSamples >= endpointSilence
+            if silenceEnded || captured.count >= maxUtterance {
+                finalizeCurrentUtterance()
+            }
+        }
+    }
+
+    // Snapshot the utterance and hand it to transcription, resetting VAD state.
+    private func finalizeCurrentUtterance() {
+        guard capturing else { return }
+        let utt = captured
+        let voiced = voicedSamples
+        capturing = false; captured = []; preRoll = []
+        voicedSamples = 0; silentSamples = 0; uttPeak = 0; lastPartialSample = 0; lastPartialText = ""
+        if voiced >= minVoiced { transcribe(utt) }
+    }
+
+    // Every ~0.75s of fresh speech, kick off a non-blocking interim transcription of
+    // the audio captured so far so the caption updates live. One at a time; deduped.
+    private func maybeEmitPartial() {
+        guard State.partialCaptions, !partialInFlight,
+              voicedSamples >= partialMinVoiced,
+              captured.count - lastPartialSample >= partialInterval else { return }
+        lastPartialSample = captured.count
+        partialInFlight = true
+        let snapshot = captured
+        let gen = generation
+        work.async { [weak self] in
+            guard let self = self else { return }
+            defer { self.partialInFlight = false }
+            guard self.ensureServerReady() else { return }
+            let text = self.serverTranscribe(self.wavData(snapshot))?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !text.isEmpty, text != self.lastPartialText else { return }
+            self.lastPartialText = text
+            DispatchQueue.main.async {
+                guard self.running, self.generation == gen, self.capturing else { return }
+                self.onPartial?(text)
             }
         }
     }
@@ -1267,6 +1355,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let settings = SettingsWindowController()
     private let voice = VoiceListener()
     private let caption = CaptionWindow()
+    private var pttMonitor: Any?
+
+    // Selectable PTT keys (modifiers that type nothing). Fn is default.
+    static let pttKeyOptions: [(code: Int, name: String, flag: NSEvent.ModifierFlags)] = [
+        (63, "Fn", .function), (61, "右Option", .option), (58, "左Option", .option),
+        (54, "右Command", .command), (59, "Control", .control),
+    ]
+    private func pttFlag(_ code: Int) -> NSEvent.ModifierFlags {
+        Self.pttKeyOptions.first { $0.code == code }?.flag ?? .function
+    }
+    // ai-notify runs in the background, so PTT needs a GLOBAL monitor — which
+    // requires Input Monitoring permission (システム設定›プライバシー›入力監視).
+    private func installPTTMonitor() {
+        guard pttMonitor == nil else { return }
+        pttMonitor = NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
+            guard let self = self, State.pushToTalk, Int(event.keyCode) == State.pttKeyCode else { return }
+            let down = event.modifierFlags.contains(self.pttFlag(State.pttKeyCode))
+            self.voice.setTalkActive(down)
+            if down && State.captionEnabled { self.caption.listening() }
+        }
+    }
+    private func removePTTMonitor() {
+        if let m = pttMonitor { NSEvent.removeMonitor(m); pttMonitor = nil }
+        voice.setTalkActive(false)
+    }
 
     // The "waiting for input" popup — one floating card per waiting pane.
     private var waitingCards: [String: PopupCard] = [:] // keyed by tty
@@ -1310,6 +1423,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             default: self?.caption.heard(heard)
             }
         }
+        voice.onPartial = { [weak self] text in if State.captionEnabled { self?.caption.partial(text) } }
+        voice.setPushToTalk(State.pushToTalk)
+        if State.pushToTalk { installPTTMonitor() }
         // Resume the mic wake-word loop if it was left on (clear the flag if the
         // permission was since revoked, so the menu reflects reality).
         State.voiceLog("didFinishLaunching; voiceInputEnabled=\(State.voiceInputEnabled)")
@@ -1727,6 +1843,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if !State.captionEnabled { caption.hide() }
     }
 
+    // Push-to-talk: capture only while the talk key (default Fn) is held.
+    @objc private func togglePushToTalk(_ sender: NSMenuItem) {
+        State.setPushToTalk(!State.pushToTalk)
+        voice.setPushToTalk(State.pushToTalk)
+        if State.pushToTalk {
+            installPTTMonitor()
+            let name = Self.pttKeyOptions.first { $0.code == State.pttKeyCode }?.name ?? "Fn"
+            notify("プッシュトゥトーク: ON（\(name) 長押し）",
+                   "バックグラウンド常駐のため『入力監視』権限が必要です：\nシステム設定 › プライバシーとセキュリティ › 入力監視 で ai-notify を許可。")
+        } else {
+            removePTTMonitor()
+        }
+    }
+    @objc private func setPTTKey(_ sender: NSMenuItem) {
+        State.setPTTKeyCode(sender.tag)
+        if State.pushToTalk { removePTTMonitor(); installPTTMonitor() }
+    }
+    @objc private func togglePartial(_ sender: NSMenuItem) {
+        State.setPartialCaptions(!State.partialCaptions)
+    }
+
+    private func notify(_ title: String, _ info: String) {
+        let a = NSAlert(); a.messageText = title; a.informativeText = info; a.runModal()
+    }
+
     // Flip the mic wake-word loop on/off. Enabling is async (permission prompts);
     // the flag is only persisted once it actually starts, and a denial shows why.
     @objc private func toggleVoiceInput(_ sender: NSMenuItem) {
@@ -1951,6 +2092,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         capItem.target = self
         capItem.state = State.captionEnabled ? .on : .off
         menu.addItem(capItem)
+
+        // Live partial captions (interim words while speaking).
+        let partialItem = NSMenuItem(title: "　⚡️ 話している途中もリアルタイム表示", action: #selector(togglePartial(_:)), keyEquivalent: "")
+        partialItem.target = self
+        partialItem.state = State.partialCaptions ? .on : .off
+        menu.addItem(partialItem)
+
+        // Push-to-talk on/off + key picker.
+        let pttItem = NSMenuItem(title: "　🎙 プッシュトゥトーク（押している間だけ）", action: #selector(togglePushToTalk(_:)), keyEquivalent: "")
+        pttItem.target = self
+        pttItem.state = State.pushToTalk ? .on : .off
+        menu.addItem(pttItem)
+        let pttKeyParent = NSMenuItem(title: "　　PTTキー", action: nil, keyEquivalent: "")
+        let pttKeySub = NSMenu()
+        for opt in Self.pttKeyOptions {
+            let it = NSMenuItem(title: opt.name, action: #selector(setPTTKey(_:)), keyEquivalent: "")
+            it.target = self; it.tag = opt.code
+            it.state = State.pttKeyCode == opt.code ? .on : .off
+            pttKeySub.addItem(it)
+        }
+        pttKeyParent.submenu = pttKeySub
+        menu.addItem(pttKeyParent)
 
         menu.addItem(.separator())
         // Waiting-for-input popup: enable + when-to-show settings, all in a submenu.
